@@ -1,9 +1,9 @@
 import React, { useState, useCallback } from "react";
 
 import { useDropzone } from "react-dropzone";
-import { FileUp, Loader2, CheckCircle2, Trash2, AlertTriangle, CreditCard, Wallet } from "lucide-react";
+import { FileUp, Loader2, CheckCircle2, Trash2, AlertTriangle, CreditCard, Wallet, Landmark } from "lucide-react";
 import { extractTransactionsFromFile, ExtractedTransaction } from "@/services/geminiService";
-import { db } from "@/lib/firebase";
+import { db, Account, ACCOUNT_TYPE_ICONS } from "@/lib/firebase";
 import { collection, addDoc } from "firebase/firestore";
 import { toast } from "sonner";
 import { formatCurrency } from "@/lib/constants";
@@ -35,9 +35,10 @@ interface ImportModalProps {
   currentYear: number;
   currentMonth: number;
   existingTransactions: any[];
+  accounts: Account[];
 }
 
-export default function ImportModal({ isOpen, onClose, userId, sharedWith, customCategories, currentYear, currentMonth, existingTransactions }: ImportModalProps) {
+export default function ImportModal({ isOpen, onClose, userId, sharedWith, customCategories, currentYear, currentMonth, existingTransactions, accounts }: ImportModalProps) {
   const [loading, setLoading] = useState(false);
   const [loadingStatus, setLoadingStatus] = useState("");
   const [preview, setPreview] = useState<(ExtractedTransaction & { isDuplicate?: boolean })[]>([]);
@@ -46,6 +47,7 @@ export default function ImportModal({ isOpen, onClose, userId, sharedWith, custo
   const [importType, setImportType] = useState<'debit' | 'credit'>('debit');
   const [dueDay, setDueDay] = useState<string>("24");
   const [importMonth, setImportMonth] = useState<string>(currentMonth.toString());
+  const [selectedAccountId, setSelectedAccountId] = useState<string>("");
 
   // Resetar estados ao abrir o modal para evitar que configurações anteriores persistam
   React.useEffect(() => {
@@ -54,6 +56,7 @@ export default function ImportModal({ isOpen, onClose, userId, sharedWith, custo
       setPreview([]);
       setImportType('debit');
       setImportMonth(currentMonth.toString());
+      setSelectedAccountId("");
       setLoading(false);
       setLoadingStatus("");
     }
@@ -157,14 +160,26 @@ export default function ImportModal({ isOpen, onClose, userId, sharedWith, custo
   const handleImport = async () => {
     setLoading(true);
     try {
-      const promises = preview.map(tx =>
-        addDoc(collection(db, "transactions"), {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      const promises = preview.map(tx => {
+        // Se for fatura de cartão, decide entre 'paid' ou 'pending' com base na data do vencimento
+        // Se for débito/extrato, assume-se que já foi pago
+        let status = 'paid';
+        if (importType === 'credit') {
+          const txDate = new Date(tx.date + 'T12:00:00'); // T12:00:00 para evitar problemas de timezone
+          status = txDate < today ? 'paid' : 'pending';
+        }
+
+        return addDoc(collection(db, "transactions"), {
           ...tx,
           userId,
-          status: 'paid',
+          accountId: selectedAccountId || undefined,
+          status,
           sharedWith
-        })
-      );
+        });
+      });
       await Promise.all(promises);
       toast.success(`${preview.length} transações importadas com sucesso!`);
       onClose();
@@ -279,6 +294,34 @@ export default function ImportModal({ isOpen, onClose, userId, sharedWith, custo
                     </div>
                   </div>
                 )}
+              </div>
+
+              {/* Wallet Selector */}
+              <div className="bg-zinc-50 p-4 rounded-xl border border-zinc-200 space-y-3">
+                <div className="flex items-center gap-2">
+                  <Landmark className="w-4 h-4 text-blue-600" />
+                  <label className="text-[11px] font-bold uppercase text-zinc-600">Vincular a uma Carteira</label>
+                </div>
+                <Select value={selectedAccountId} onValueChange={setSelectedAccountId}>
+                  <SelectTrigger className="w-full h-11 bg-white border-zinc-200">
+                    <SelectValue placeholder="Selecione a conta de destino" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Nenhuma conta (vincular depois)</SelectItem>
+                    {accounts.map((acc) => (
+                      <SelectItem key={acc.id} value={acc.id!}>
+                        <div className="flex items-center gap-2">
+                          <span>{ACCOUNT_TYPE_ICONS[acc.type]}</span>
+                          <span className="font-medium">{acc.name}</span>
+                          <span className="text-[10px] text-zinc-400">({acc.ownerName})</span>
+                        </div>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-[10px] text-zinc-400 italic">
+                  * Todas as transações importadas serão vinculadas a esta conta para facilitar o controle de saldo.
+                </p>
               </div>
             </div>
           ) : (

@@ -105,9 +105,9 @@ export default function InstallmentsTracker({ transactions }: InstallmentsTracke
 
   // Color for progress bar based on how much is left
   function progressColor(pct: number) {
-    if (pct >= 80) return "hsl(145, 63%, 45%)"; // green — almost done
-    if (pct >= 50) return "hsl(47, 96%, 50%)";  // yellow — halfway
-    return "hsl(0, 84%, 55%)";                  // red — still a lot left
+    if (pct >= 80) return "#10b981"; // green (Emerald 500)
+    if (pct >= 50) return "#f59e0b"; // yellow (Amber 500)
+    return "#ef4444";               // red (Red 500)
   }
 
   // Color for projection bars

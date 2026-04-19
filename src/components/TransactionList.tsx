@@ -77,12 +77,17 @@ export default function TransactionList({ transactions, onEdit, accounts = [] }:
                     {tx.accountId && accountMap.has(tx.accountId) && (() => {
                       const acc = accountMap.get(tx.accountId)!;
                       return (
-                        <span
-                          className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full flex-shrink-0"
-                          style={{ background: `${acc.color}20`, color: acc.color }}
+                        <div
+                          className="flex items-end  gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border shadow-sm "
+                          style={{
+                            background: `${acc.color}15`,
+                            color: acc.color,
+                            borderColor: `${acc.color}30`
+                          }}
                         >
-                          {ACCOUNT_TYPE_ICONS[acc.type]} {acc.name}
-                        </span>
+                          <span className="text-xs">{ACCOUNT_TYPE_ICONS[acc.type]}</span>
+                          <span className="truncate max-w-[80px]">{acc.name}</span>
+                        </div>
                       );
                     })()}
                   </div>

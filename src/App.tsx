@@ -290,6 +290,8 @@ function MainContent({
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [paymentFilter, setPaymentFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [walletFilter, setWalletFilter] = useState("all");
+  const [userFilter, setUserFilter] = useState("all");
 
   const handleYearChange = (delta: number) => {
     const newYear = selectedYear + delta;
@@ -316,15 +318,19 @@ function MainContent({
     const matchCategory = categoryFilter === "all" || tx.category === categoryFilter;
     const matchPayment = paymentFilter === "all" || tx.paymentMethod === paymentFilter;
     const matchStatus = statusFilter === "all" || tx.status === statusFilter;
-    return matchCategory && matchPayment && matchStatus;
+    const matchWallet = walletFilter === "all" || tx.accountId === walletFilter;
+    const matchUser = userFilter === "all" || tx.userId === userFilter;
+    return matchCategory && matchPayment && matchStatus && matchWallet && matchUser;
   });
 
-  const hasActiveFilters = categoryFilter !== "all" || paymentFilter !== "all" || statusFilter !== "all";
+  const hasActiveFilters = categoryFilter !== "all" || paymentFilter !== "all" || statusFilter !== "all" || walletFilter !== "all" || userFilter !== "all";
 
   const clearFilters = () => {
     setCategoryFilter("all");
     setPaymentFilter("all");
     setStatusFilter("all");
+    setWalletFilter("all");
+    setUserFilter("all");
   };
 
   // Aggregate Group Data
@@ -534,7 +540,7 @@ function MainContent({
               </div>
 
               {showFilters && (
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-4 bg-white rounded-xl border border-zinc-200 animate-in fade-in slide-in-from-top-2 duration-200">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 p-4 bg-white rounded-xl border border-zinc-200 animate-in fade-in slide-in-from-top-2 duration-200">
                   <div className="space-y-1.5">
                     <label className="text-[10px] font-bold uppercase text-zinc-400 ml-1">Categoria</label>
                     <Select value={categoryFilter} onValueChange={setCategoryFilter}>
@@ -578,6 +584,36 @@ function MainContent({
                       </SelectContent>
                     </Select>
                   </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold uppercase text-zinc-400 ml-1">Carteira</label>
+                    <Select value={walletFilter} onValueChange={setWalletFilter}>
+                      <SelectTrigger className="h-9">
+                        <SelectValue placeholder="Todas as carteiras" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">Todas as carteiras</SelectItem>
+                        {accounts.map(acc => (
+                          <SelectItem key={acc.id} value={acc.id!}>{acc.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold uppercase text-zinc-400 ml-1">Usuário</label>
+                    <Select value={userFilter} onValueChange={setUserFilter}>
+                      <SelectTrigger className="h-9">
+                        <SelectValue placeholder="Todos os usuários" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">Todos os usuários</SelectItem>
+                        {groupProfiles.map(p => (
+                          <SelectItem key={p.uid} value={p.uid}>{p.displayName}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
               )}
 
@@ -615,6 +651,7 @@ function MainContent({
         currentYear={selectedYear}
         currentMonth={currentMonthIdx}
         existingTransactions={transactions}
+        accounts={accounts}
       />
       <ShareModal
         isOpen={isShareOpen}
