@@ -36,7 +36,7 @@ export default function App() {
   const [isImportOpen, setIsImportOpen] = useState(false);
   const [isShareOpen, setIsShareOpen] = useState(false);
   const [accounts, setAccounts] = useState<Account[]>([]);
-  
+
   const location = useLocation();
   const match = useMatch("/:year/:month?/:tab?");
   const routeYear = match?.params.year;
@@ -204,9 +204,9 @@ export default function App() {
   return (
     <Routes>
       <Route path="/:year/:month?/:tab?" element={
-        <MainContent 
-          user={user} 
-          profile={profile} 
+        <MainContent
+          user={user}
+          profile={profile}
           transactions={transactions}
           accounts={accounts}
           isFormOpen={isFormOpen}
@@ -243,10 +243,10 @@ interface MainContentProps {
   currentMonthIdx: number;
 }
 
-function MainContent({ 
+function MainContent({
   user, profile, transactions, accounts,
-  isFormOpen, setIsFormOpen, 
-  isImportOpen, setIsImportOpen, 
+  isFormOpen, setIsFormOpen,
+  isImportOpen, setIsImportOpen,
   isShareOpen, setIsShareOpen,
   logOut,
   selectedYear,
@@ -305,18 +305,19 @@ function MainContent({
       <header className="sticky top-0 z-10 bg-white border-b border-zinc-200 px-4 py-3">
         <div className="max-w-6xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-2 cursor-pointer" onClick={() => navigate('/')}>
-            <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center text-white font-bold">F</div>
-            <h1 className="text-lg font-semibold tracking-tight">Finanças em Família</h1>
+            <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center text-white font-extrabold shadow-sm">F</div>
+            <h1 className="text-lg font-bold tracking-tight hidden xs:block">Finanças em Família</h1>
+            <h1 className="text-lg font-bold tracking-tight xs:hidden">Finanly</h1>
           </div>
 
           <div className="flex items-center gap-4">
-            <div className="flex items-center bg-zinc-100 rounded-lg p-1 mr-4">
-              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleYearChange(-1)}>
-                <ChevronLeft className="w-4 h-4" />
+            <div className="flex items-center bg-zinc-100 rounded-lg p-0.5 sm:p-1">
+              <Button variant="ghost" size="icon" className="h-7 w-7 sm:h-8 sm:w-8" onClick={() => handleYearChange(-1)}>
+                <ChevronLeft className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
               </Button>
-              <span className="px-3 text-sm font-bold text-zinc-700">{selectedYear}</span>
-              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleYearChange(1)}>
-                <ChevronRight className="w-4 h-4" />
+              <span className="px-2 sm:px-3 text-xs sm:text-sm font-bold text-zinc-700">{selectedYear}</span>
+              <Button variant="ghost" size="icon" className="h-7 w-7 sm:h-8 sm:w-8" onClick={() => handleYearChange(1)}>
+                <ChevronRight className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
               </Button>
             </div>
 
@@ -343,45 +344,45 @@ function MainContent({
             </h2>
             <p className="text-zinc-500">Olá {user.displayName?.split(' ')[0]}, acompanhe sua evolução financeira.</p>
           </div>
-          <div className="flex items-center gap-2">
-            <Button onClick={() => setIsImportOpen(true)} variant="outline" className="gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <Button onClick={() => setIsImportOpen(true)} variant="outline" size="sm" className="gap-2 h-9">
               <Receipt className="w-4 h-4" />
-              Importar Fatura
+              <span className="text-xs sm:text-sm">Importar Fatura</span>
             </Button>
-            <Button onClick={() => setIsFormOpen(true)} className="gap-2 bg-blue-600 hover:bg-blue-700">
+            <Button onClick={() => setIsFormOpen(true)} size="sm" className="gap-2 h-9 bg-blue-600 hover:bg-blue-700">
               <PlusCircle className="w-4 h-4" />
-              Nova Conta
+              <span className="text-xs sm:text-sm">Nova Transação</span>
             </Button>
           </div>
         </div>
 
         <Tabs value={tab} onValueChange={handleTabChange} className="w-full">
-          <TabsList className="grid w-full max-w-5xl grid-cols-7 mb-6">
-            <TabsTrigger value="dashboard" className="gap-1.5 text-xs">
+          <TabsList className="flex w-full overflow-x-auto flex-nowrap h-auto justify-start md:justify-center md:grid md:grid-cols-7 mb-6 bg-zinc-100/50 p-1 rounded-xl scrollbar-hide">
+            <TabsTrigger value="dashboard" className="flex-none gap-1.5 text-[11px] sm:text-xs px-5 py-2">
               <LayoutDashboard className="w-3.5 h-3.5" />
               Dashboard
             </TabsTrigger>
-            <TabsTrigger value="transactions" className="gap-1.5 text-xs">
+            <TabsTrigger value="transactions" className="flex-none gap-1.5 text-[11px] sm:text-xs px-5 py-2">
               <Receipt className="w-3.5 h-3.5" />
               Transações
             </TabsTrigger>
-            <TabsTrigger value="heatmap" className="gap-1.5 text-xs">
+            <TabsTrigger value="heatmap" className="flex-none gap-1.5 text-[11px] sm:text-xs px-5 py-2">
               <Flame className="w-3.5 h-3.5" />
-              Mapa de Calor
+              Mapa
             </TabsTrigger>
-            <TabsTrigger value="installments" className="gap-1.5 text-xs">
+            <TabsTrigger value="installments" className="flex-none gap-1.5 text-[11px] sm:text-xs px-5 py-2">
               <Layers className="w-3.5 h-3.5" />
-              Parcelamentos
+              Parcelas
             </TabsTrigger>
-            <TabsTrigger value="budgets" className="gap-1.5 text-xs">
+            <TabsTrigger value="budgets" className="flex-none gap-1.5 text-[11px] sm:text-xs px-5 py-2">
               <Target className="w-3.5 h-3.5" />
-              Orçamentos
+              Metas
             </TabsTrigger>
-            <TabsTrigger value="wallets" className="gap-1.5 text-xs">
+            <TabsTrigger value="wallets" className="flex-none gap-1.5 text-[11px] sm:text-xs px-5 py-2">
               <Wallet className="w-3.5 h-3.5" />
               Carteiras
             </TabsTrigger>
-            <TabsTrigger value="categories" className="gap-1.5 text-xs">
+            <TabsTrigger value="categories" className="flex-none gap-1.5 text-[11px] sm:text-xs px-5 py-2 border-none">
               <Tag className="w-3.5 h-3.5" />
               Categorias
             </TabsTrigger>
@@ -389,13 +390,13 @@ function MainContent({
 
           <TabsContent value="dashboard" className="space-y-6">
             {isAnnual ? (
-              <AnnualDashboard 
-                transactions={transactions} 
-                year={selectedYear} 
-                onSelectMonth={(m) => navigate(`/${selectedYear}/${(m + 1).toString().padStart(2, '0')}/dashboard`)} 
+              <AnnualDashboard
+                transactions={transactions}
+                year={selectedYear}
+                onSelectMonth={(m) => navigate(`/${selectedYear}/${(m + 1).toString().padStart(2, '0')}/dashboard`)}
               />
             ) : (
-              <MonthlyDashboard 
+              <MonthlyDashboard
                 month={currentMonthIdx}
                 year={selectedYear}
                 onBackToAnnual={() => navigate(`/${selectedYear}/annual/dashboard`)}
@@ -439,9 +440,9 @@ function MainContent({
 
           <TabsContent value="categories">
             {profile ? (
-              <CategoryManager 
-                profile={profile} 
-                userId={user.uid} 
+              <CategoryManager
+                profile={profile}
+                userId={user.uid}
               />
             ) : (
               <div className="text-center py-12 text-zinc-400">Carregando perfil...</div>
@@ -460,9 +461,9 @@ function MainContent({
                       <X className="w-3 h-3" /> Limpar
                     </Button>
                   )}
-                  <Button 
-                    variant={showFilters ? "secondary" : "outline"} 
-                    size="sm" 
+                  <Button
+                    variant={showFilters ? "secondary" : "outline"}
+                    size="sm"
                     onClick={() => setShowFilters(!showFilters)}
                     className="gap-2 h-8"
                   >
@@ -520,8 +521,8 @@ function MainContent({
                 </div>
               )}
 
-              <TransactionList 
-                transactions={listTransactions} 
+              <TransactionList
+                transactions={listTransactions}
                 onEdit={(tx) => {
                   setEditingTransaction(tx);
                   setIsFormOpen(true);
