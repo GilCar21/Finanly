@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from "react";
-import { auth, db, signIn, logOut, Transaction, UserProfile, Account } from "@/lib/firebase";
+import React, { useState, useEffect, useMemo } from "react";
+import { auth, db, signIn, logOut, Transaction, UserProfile, Account, Category, Budget } from "@/lib/firebase";
 import { onAuthStateChanged, User } from "firebase/auth";
 import { collection, query, where, orderBy, onSnapshot, doc, getDoc, setDoc } from "firebase/firestore";
 import AnnualDashboard from "@/components/AnnualDashboard";
@@ -36,6 +36,7 @@ export default function App() {
   const [isImportOpen, setIsImportOpen] = useState(false);
   const [isShareOpen, setIsShareOpen] = useState(false);
   const [accounts, setAccounts] = useState<Account[]>([]);
+  const [groupProfiles, setGroupProfiles] = useState<UserProfile[]>([]);
 
   const location = useLocation();
   const match = useMatch("/:year/:month?/:tab?");
@@ -78,7 +79,25 @@ export default function App() {
     return () => unsubscribeAuth();
   }, []);
 
-  // Profile real-time listener
+  // Group profiles real-time listener (Find everyone who shared with me)
+  useEffect(() => {
+    if (!user) return;
+    
+    const qSharedWithMe = query(
+      collection(db, "users"),
+      where("sharedWith", "array-contains", user.email)
+    );
+
+    const unsubscribeShared = onSnapshot(qSharedWithMe, (snapshot) => {
+      const profiles = snapshot.docs.map(d => d.data() as UserProfile);
+      setGroupProfiles(profiles);
+      console.log(`🤝 [Group] Encontrados ${profiles.length} perfis compartilhando com você.`);
+    });
+
+    return () => unsubscribeShared();
+  }, [user]);
+
+  // Profile real-time listener (Self)
   useEffect(() => {
     if (!user) return;
     const unsubscribeProfile = onSnapshot(doc(db, "users", user.uid), (doc) => {
@@ -89,11 +108,19 @@ export default function App() {
     return () => unsubscribeProfile();
   }, [user]);
 
-  // Accounts real-time listener
+  // Accounts real-time listener (Self + Shared)
   useEffect(() => {
     if (!user) return;
-    const qOwner = query(collection(db, "accounts"), where("userId", "==", user.uid));
-    const qShared = query(collection(db, "accounts"), where("sharedWith", "array-contains", user.email ?? ""));
+    
+    // Group UIDs including self
+    const groupUids = [user.uid, ...groupProfiles.map(p => p.uid)];
+    
+    // Listen for accounts owned by anyone in the group
+    const qGroupAccounts = query(collection(db, "accounts"), where("userId", "in", groupUids));
+    
+    // Also listen for accounts explicitly shared with my email
+    const qExplicitShared = query(collection(db, "accounts"), where("sharedWith", "array-contains", user.email ?? ""));
+    
     const accMap = new Map<string, Account>();
     const update = (snap: any) => {
       snap.docChanges().forEach((change: any) => {
@@ -102,10 +129,12 @@ export default function App() {
       });
       setAccounts(Array.from(accMap.values()));
     };
-    const u1 = onSnapshot(qOwner, update);
-    const u2 = onSnapshot(qShared, update);
+    
+    const u1 = onSnapshot(qGroupAccounts, update);
+    const u2 = onSnapshot(qExplicitShared, update);
+    
     return () => { u1(); u2(); };
-  }, [user]);
+  }, [user, groupProfiles]);
 
   useEffect(() => {
     if (!user || !profile) return;
@@ -123,19 +152,22 @@ export default function App() {
       dateEnd = `${selectedYear}-${monthStr}-31`; // Firestore aceita até o 31 sem problemas
     }
 
-    console.log(`📡 [Firestore] Carregando transações de ${dateStart} até ${dateEnd}`);
+    // Group IDs including self
+    const groupUids = [user.uid, ...groupProfiles.map(p => p.uid)];
 
-    // Fetch transactions where user is owner
-    const qOwner = query(
+    console.log(`📡 [Firestore] Carregando transações do grupo: ${groupUids.join(', ')}`);
+
+    // Fetch transactions from everyone in the group
+    const qGroupTxs = query(
       collection(db, "transactions"),
-      where("userId", "==", user.uid),
+      where("userId", "in", groupUids),
       where("date", ">=", dateStart),
       where("date", "<=", dateEnd),
       orderBy("date", "desc")
     );
 
-    // Fetch transactions shared with this user's email
-    const qShared = query(
+    // Fetch transactions shared with this user's email (legacy/external sharing)
+    const qExplicitSharedTxs = query(
       collection(db, "transactions"),
       where("sharedWith", "array-contains", user.email),
       where("date", ">=", dateStart),
@@ -159,35 +191,28 @@ export default function App() {
       setTransactions(sortedTxs);
     };
 
-    const unsubOwner = onSnapshot(qOwner, {
+    const unsubGroup = onSnapshot(qGroupTxs, {
       next: updateTxs,
       error: (err) => {
-        console.error("Erro na consulta do proprietário:", err);
+        console.error("Erro na consulta do grupo:", err);
         if (err.code === 'failed-precondition') {
           toast.error("Erro de índice no Firebase. Verifique o console.");
-        } else {
-          toast.error("Erro ao carregar transações próprias.");
         }
       }
     });
 
-    const unsubShared = onSnapshot(qShared, {
+    const unsubShared = onSnapshot(qExplicitSharedTxs, {
       next: updateTxs,
       error: (err) => {
         console.error("Erro na consulta compartilhada:", err);
-        if (err.code === 'failed-precondition') {
-          toast.error("Erro de índice no Firebase (compartilhado).");
-        } else {
-          toast.error("Erro ao carregar transações compartilhadas.");
-        }
       }
     });
 
     return () => {
-      unsubOwner();
+      unsubGroup();
       unsubShared();
     };
-  }, [user, profile, selectedYear, currentMonthIdx, isAnnual]);
+  }, [user, profile, groupProfiles, selectedYear, currentMonthIdx, isAnnual]);
 
   if (loading) {
     return (
@@ -219,6 +244,7 @@ export default function App() {
           selectedYear={selectedYear}
           isAnnual={isAnnual}
           currentMonthIdx={currentMonthIdx}
+          groupProfiles={[profile, ...groupProfiles].filter((p): p is UserProfile => !!p)}
         />
       } />
       <Route path="/" element={<Navigate to={`/${new Date().getFullYear()}/${(new Date().getMonth() + 1).toString().padStart(2, '0')}/dashboard`} replace />} />
@@ -241,6 +267,7 @@ interface MainContentProps {
   selectedYear: number;
   isAnnual: boolean;
   currentMonthIdx: number;
+  groupProfiles: UserProfile[];
 }
 
 function MainContent({
@@ -248,10 +275,10 @@ function MainContent({
   isFormOpen, setIsFormOpen,
   isImportOpen, setIsImportOpen,
   isShareOpen, setIsShareOpen,
-  logOut,
   selectedYear,
   isAnnual,
-  currentMonthIdx
+  currentMonthIdx,
+  groupProfiles
 }: MainContentProps) {
   const { year, month, tab = 'dashboard' } = useParams();
   const navigate = useNavigate();
@@ -299,6 +326,39 @@ function MainContent({
     setPaymentFilter("all");
     setStatusFilter("all");
   };
+
+  // Aggregate Group Data
+  const allCustomCategories = useMemo(() => {
+    const catMap = new Map<string, Category>();
+    groupProfiles.forEach(p => {
+      p.customCategories?.forEach(c => catMap.set(c.name, c));
+    });
+    return Array.from(catMap.values());
+  }, [groupProfiles]);
+
+  const allBudgets = useMemo(() => {
+    const budgetMap = new Map<string, Budget>();
+    groupProfiles.forEach(p => {
+      p.budgets?.forEach(b => budgetMap.set(b.category, b));
+    });
+    return Array.from(budgetMap.values());
+  }, [groupProfiles]);
+
+  const allSharedEmails = useMemo(() => {
+    const emails = new Set<string>();
+    groupProfiles.forEach(p => {
+      emails.add(p.email);
+      p.sharedWith?.forEach(e => emails.add(e));
+    });
+    return Array.from(emails).filter(e => e !== user.email);
+  }, [groupProfiles, user.email]);
+
+  const aggregatedProfile = useMemo(() => ({
+    ...profile!,
+    customCategories: allCustomCategories,
+    budgets: allBudgets,
+    sharedWith: allSharedEmails
+  }), [profile, allCustomCategories, allBudgets, allSharedEmails]);
 
   return (
     <div className="min-h-screen bg-zinc-50 text-zinc-900 font-sans">
@@ -420,7 +480,7 @@ function MainContent({
           <TabsContent value="budgets">
             {profile ? (
               <BudgetManager
-                profile={profile}
+                profile={aggregatedProfile}
                 transactions={transactions}
                 userId={user.uid}
               />
@@ -434,14 +494,14 @@ function MainContent({
               accounts={accounts}
               transactions={transactions}
               userId={user.uid}
-              sharedWith={profile?.sharedWith || []}
+              sharedWith={aggregatedProfile.sharedWith}
             />
           </TabsContent>
 
           <TabsContent value="categories">
             {profile ? (
               <CategoryManager
-                profile={profile}
+                profile={aggregatedProfile}
                 userId={user.uid}
               />
             ) : (
@@ -541,8 +601,8 @@ function MainContent({
           setEditingTransaction(null);
         }}
         userId={user.uid}
-        sharedWith={profile?.sharedWith || []}
-        customCategories={profile?.customCategories || []}
+        sharedWith={aggregatedProfile.sharedWith}
+        customCategories={aggregatedProfile.customCategories}
         initialData={editingTransaction}
         accounts={accounts}
       />
@@ -550,8 +610,8 @@ function MainContent({
         isOpen={isImportOpen}
         onClose={() => setIsImportOpen(false)}
         userId={user.uid}
-        sharedWith={profile?.sharedWith || []}
-        customCategories={profile?.customCategories || []}
+        sharedWith={aggregatedProfile.sharedWith}
+        customCategories={aggregatedProfile.customCategories}
         currentYear={selectedYear}
         currentMonth={currentMonthIdx}
         existingTransactions={transactions}
@@ -564,7 +624,7 @@ function MainContent({
       <NLPChat
         transactions={transactions}
         userId={user.uid}
-        sharedWith={profile?.sharedWith || []}
+        sharedWith={aggregatedProfile.sharedWith}
         userName={user.displayName || 'você'}
       />
       <Toaster position="top-right" />
