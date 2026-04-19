@@ -58,6 +58,7 @@ function CategoryCard({
   onEdit, 
   onDelete 
 }: { 
+  key?: React.Key,
   category: Category, 
   onEdit: () => void, 
   onDelete: () => void 

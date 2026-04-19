@@ -4,7 +4,7 @@ import { getFirestore, collection, addDoc, updateDoc, deleteDoc, doc, onSnapshot
 
 // Default placeholder config
 const firebaseConfig = {
-  apiKey: process.env.FIREBASE_API_KEY,
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
   authDomain: "finace-family.firebaseapp.com",
   projectId: "finace-family",
   storageBucket: "finace-family.firebasestorage.app",

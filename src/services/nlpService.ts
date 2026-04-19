@@ -4,7 +4,7 @@ import { format, parseISO, startOfMonth, endOfMonth, subMonths, isWithinInterval
 import { ptBR } from "date-fns/locale";
 import { CATEGORIES, PAYMENT_METHODS } from "@/lib/constants";
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_GEMINI_API_KEY });
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 

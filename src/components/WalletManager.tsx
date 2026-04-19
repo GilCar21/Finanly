@@ -352,11 +352,12 @@ function TransferForm({ accounts, userId, sharedWith, onDone }: TransferFormProp
 function AccountCard({
   account, balance, flow, onEdit, onDelete,
 }: {
+  key?: React.Key;
   account: Account;
   balance: number;
   flow: { income: number; expense: number };
   onEdit: () => void;
-  onDelete: () => void;
+  onDelete: () => Promise<void> | void;
 }) {
   const isCredit = account.type === "credit";
   const isNegative = !isCredit && balance < 0;
