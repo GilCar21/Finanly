@@ -1,0 +1,42 @@
+{
+  "entities": {
+    "Transaction": {
+      "title": "Transaction",
+      "description": "A financial transaction (expense or income)",
+      "type": "object",
+      "properties": {
+        "date": { "type": "string", "format": "date", "description": "Date of the transaction" },
+        "description": { "type": "string", "description": "Description of the expense" },
+        "amount": { "type": "number", "description": "Value in R$" },
+        "category": { "type": "string", "description": "Category (e.g., Casa, Mercado)" },
+        "paymentMethod": { "type": "string", "description": "Payment method (e.g., Cartão, Outros)" },
+        "status": { "type": "string", "enum": ["paid", "pending"], "description": "Payment status" },
+        "installments": { "type": "string", "description": "Installment info (e.g., 2 de 9)" },
+        "userId": { "type": "string", "description": "Owner of the transaction" },
+        "sharedWith": { "type": "array", "items": { "type": "string" }, "description": "List of user IDs this is shared with" }
+      },
+      "required": ["date", "description", "amount", "category", "userId"]
+    },
+    "UserProfile": {
+      "title": "User Profile",
+      "description": "User information and sharing settings",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string", "format": "email" },
+        "displayName": { "type": "string" },
+        "sharedWith": { "type": "array", "items": { "type": "string" }, "description": "Emails of people shared with" }
+      },
+      "required": ["email"]
+    }
+  },
+  "firestore": {
+    "/transactions/{transactionId}": {
+      "schema": "Transaction",
+      "description": "Financial transactions"
+    },
+    "/users/{userId}": {
+      "schema": "UserProfile",
+      "description": "User profiles and settings"
+    }
+  }
+}
