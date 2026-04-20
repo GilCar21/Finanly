@@ -66,19 +66,19 @@ export default function ImportModal({ isOpen, onClose, userId, sharedWith, custo
     const file = acceptedFiles[0];
     if (!file) return;
 
-      console.log("📂 [Import] Arquivo recebido:", { 
-        name: file.name, 
-        type: file.type,
-        size: file.size,
-        importType,
-        month: format(new Date(currentYear, parseInt(importMonth), 1), "MMMM/yyyy", { locale: ptBR })
-      });
+    console.log("📂 [Import] Arquivo recebido:", {
+      name: file.name,
+      type: file.type,
+      size: file.size,
+      importType,
+      month: format(new Date(currentYear, parseInt(importMonth), 1), "MMMM/yyyy", { locale: ptBR })
+    });
 
-      setLoading(true);
-      setLoadingStatus("Lendo arquivo...");
+    setLoading(true);
+    setLoadingStatus("Lendo arquivo...");
     try {
       const reader = new FileReader();
-      
+
       const fileData = await new Promise<string>((resolve, reject) => {
         reader.onload = () => resolve((reader.result as string).split(',')[1]);
         reader.onerror = reject;
@@ -88,18 +88,31 @@ export default function ImportModal({ isOpen, onClose, userId, sharedWith, custo
       setLoadingStatus("IA analisando dados e categorias...");
       const allCategoryNames = [...CATEGORIES.map(c => c.name), ...customCategories.map(c => c.name)];
       const results = await extractTransactionsFromFile(fileData, file.type, allCategoryNames);
-      
+
       setLoadingStatus("Finalizando processamento...");
-      
+
       let processedResults = results;
       if (importType === 'credit' && dueDay) {
         const selectedMonth = parseInt(importMonth);
         const normalizedDate = `${currentYear}-${(selectedMonth + 1).toString().padStart(2, '0')}-${dueDay.padStart(2, '0')}`;
         processedResults = results.map(tx => ({
           ...tx,
-          description: `(${tx.date}) ${tx.description}`, // Manter data original na descrição
+          description: `${tx.description} (${tx.date})`, // Mover data original para o fim da descrição
           date: normalizedDate
         }));
+      } else if (importType === 'debit') {
+        // Para débito/extrato, também move prefixos tipo "Transferência enviada - NOME" para "NOME (Transferência enviada)"
+        processedResults = results.map(tx => {
+          if (tx.description.includes(' - ')) {
+            const [prefix, ...rest] = tx.description.split(' - ');
+            const mainContent = rest.join(' - ');
+            return {
+              ...tx,
+              description: `${mainContent} (${prefix})`
+            };
+          }
+          return tx;
+        });
       }
 
       const finalResults = processedResults.map(tx => {
@@ -110,7 +123,7 @@ export default function ImportModal({ isOpen, onClose, userId, sharedWith, custo
           // Limpeza básica na descrição para comparação mais rigorosa
           const existingDesc = existing.description.toLowerCase().trim();
           const extractedDesc = tx.description.toLowerCase().trim();
-          
+
           return sameDate && sameAmount && (existingDesc.includes(extractedDesc) || extractedDesc.includes(existingDesc));
         });
 
@@ -135,9 +148,20 @@ export default function ImportModal({ isOpen, onClose, userId, sharedWith, custo
   }, [importType, dueDay, importMonth, currentYear, currentMonth, customCategories, existingTransactions]);
 
   const handleUpdateItem = (index: number, field: keyof ExtractedTransaction, value: any) => {
-    const newPreview = [...preview];
-    newPreview[index] = { ...newPreview[index], [field]: value };
-    setPreview(newPreview);
+    try {
+      const newPreview = [...preview];
+      let finalValue = value;
+
+      // Se for valor numérico e estiver vazio, trata como 0 para evitar NaN
+      if (field === 'amount' && (value === "" || isNaN(value))) {
+        finalValue = 0;
+      }
+
+      newPreview[index] = { ...newPreview[index], [field]: finalValue };
+      setPreview(newPreview);
+    } catch (err) {
+      console.error("❌ [Import] Erro ao atualizar item:", err);
+    }
   };
 
   const handleDeleteConfirmed = () => {
@@ -209,18 +233,16 @@ export default function ImportModal({ isOpen, onClose, userId, sharedWith, custo
                   <div className="flex p-1 bg-zinc-200/50 rounded-lg">
                     <button
                       onClick={() => setImportType('debit')}
-                      className={`flex-1 flex items-center justify-center gap-2 py-2 text-sm font-medium rounded-md transition-all ${
-                        importType === 'debit' ? 'bg-white text-blue-600 shadow-sm' : 'text-zinc-500 hover:text-zinc-700'
-                      }`}
+                      className={`flex-1 flex items-center justify-center gap-2 py-2 text-sm font-medium rounded-md transition-all ${importType === 'debit' ? 'bg-white text-blue-600 shadow-sm' : 'text-zinc-500 hover:text-zinc-700'
+                        }`}
                     >
                       <Wallet className="w-4 h-4" />
                       Extrato (Débito)
                     </button>
                     <button
                       onClick={() => setImportType('credit')}
-                      className={`flex-1 flex items-center justify-center gap-2 py-2 text-sm font-medium rounded-md transition-all ${
-                        importType === 'credit' ? 'bg-white text-blue-600 shadow-sm' : 'text-zinc-500 hover:text-zinc-700'
-                      }`}
+                      className={`flex-1 flex items-center justify-center gap-2 py-2 text-sm font-medium rounded-md transition-all ${importType === 'credit' ? 'bg-white text-blue-600 shadow-sm' : 'text-zinc-500 hover:text-zinc-700'
+                        }`}
                     >
                       <CreditCard className="w-4 h-4" />
                       Fatura (Cartão)
@@ -261,6 +283,33 @@ export default function ImportModal({ isOpen, onClose, userId, sharedWith, custo
                     </div>
                   </div>
                 )}
+                {/* Wallet Selector */}
+                <div className="bg-zinc-50 p-4 rounded-xl border border-zinc-200 space-y-3">
+                  <div className="flex items-center gap-2">
+                    <Landmark className="w-4 h-4 text-blue-600" />
+                    <label className="text-[11px] font-bold uppercase text-zinc-600">Vincular a uma Carteira</label>
+                  </div>
+                  <Select value={selectedAccountId} onValueChange={setSelectedAccountId}>
+                    <SelectTrigger className="w-full h-11 bg-white border-zinc-200">
+                      <SelectValue placeholder="Selecione a conta de destino" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">Nenhuma conta (vincular depois)</SelectItem>
+                      {accounts.map((acc) => (
+                        <SelectItem key={acc.id} value={acc.id!}>
+                          <div className="flex items-center gap-2">
+                            <span>{ACCOUNT_TYPE_ICONS[acc.type]}</span>
+                            <span className="font-medium">{acc.name}</span>
+                            <span className="text-[10px] text-zinc-400">({acc.ownerName})</span>
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-[10px] text-zinc-400 italic">
+                    * Todas as transações importadas serão vinculadas a esta conta para facilitar o controle de saldo.
+                  </p>
+                </div>
               </div>
 
               <div
@@ -295,34 +344,6 @@ export default function ImportModal({ isOpen, onClose, userId, sharedWith, custo
                   </div>
                 )}
               </div>
-
-              {/* Wallet Selector */}
-              <div className="bg-zinc-50 p-4 rounded-xl border border-zinc-200 space-y-3">
-                <div className="flex items-center gap-2">
-                  <Landmark className="w-4 h-4 text-blue-600" />
-                  <label className="text-[11px] font-bold uppercase text-zinc-600">Vincular a uma Carteira</label>
-                </div>
-                <Select value={selectedAccountId} onValueChange={setSelectedAccountId}>
-                  <SelectTrigger className="w-full h-11 bg-white border-zinc-200">
-                    <SelectValue placeholder="Selecione a conta de destino" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">Nenhuma conta (vincular depois)</SelectItem>
-                    {accounts.map((acc) => (
-                      <SelectItem key={acc.id} value={acc.id!}>
-                        <div className="flex items-center gap-2">
-                          <span>{ACCOUNT_TYPE_ICONS[acc.type]}</span>
-                          <span className="font-medium">{acc.name}</span>
-                          <span className="text-[10px] text-zinc-400">({acc.ownerName})</span>
-                        </div>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <p className="text-[10px] text-zinc-400 italic">
-                  * Todas as transações importadas serão vinculadas a esta conta para facilitar o controle de saldo.
-                </p>
-              </div>
             </div>
           ) : (
             <div className="space-y-4">
@@ -333,9 +354,9 @@ export default function ImportModal({ isOpen, onClose, userId, sharedWith, custo
                 </div>
                 <div className="flex gap-2">
                   {preview.some(tx => tx.isDuplicate) && (
-                    <Button 
-                      variant="outline" 
-                      size="sm" 
+                    <Button
+                      variant="outline"
+                      size="sm"
                       onClick={() => setPreview(prev => prev.filter(tx => !tx.isDuplicate))}
                       className="text-amber-700 border-amber-200 hover:bg-amber-100 gap-1 h-8"
                     >
@@ -371,22 +392,23 @@ export default function ImportModal({ isOpen, onClose, userId, sharedWith, custo
                           )}
                         </td>
                         <td className="p-2">
-                          <Input 
-                            value={tx.date} 
+                          <Input
+                            value={tx.date || ""}
                             onChange={(e) => handleUpdateItem(i, 'date', e.target.value)}
+                            placeholder="AAAA-MM-DD"
                             className="h-8 text-xs border-transparent hover:border-zinc-200 focus:border-blue-400 transition-all px-1"
                           />
                         </td>
                         <td className="p-2">
-                          <Input 
-                            value={tx.description} 
+                          <Input
+                            value={tx.description}
                             onChange={(e) => handleUpdateItem(i, 'description', e.target.value)}
                             className="h-8 text-xs font-semibold border-transparent hover:border-zinc-200 focus:border-blue-400 transition-all px-1"
                           />
                         </td>
                         <td className="p-2">
-                          <Select 
-                            value={tx.type} 
+                          <Select
+                            value={tx.type}
                             onValueChange={(v) => handleUpdateItem(i, 'type', v)}
                           >
                             <SelectTrigger className="h-8 text-[10px] w-full border-transparent hover:border-zinc-200 transition-all px-1">
@@ -399,17 +421,18 @@ export default function ImportModal({ isOpen, onClose, userId, sharedWith, custo
                           </Select>
                         </td>
                         <td className="p-2">
-                          <Input 
+                          <Input
                             type="number"
-                            value={tx.amount} 
-                            onChange={(e) => handleUpdateItem(i, 'amount', parseFloat(e.target.value))}
+                            step="0.01"
+                            value={isNaN(tx.amount) ? "" : tx.amount}
+                            onChange={(e) => handleUpdateItem(i, 'amount', e.target.value === "" ? "" : parseFloat(e.target.value))}
                             className="h-8 text-right font-bold border-transparent hover:border-zinc-200 focus:border-blue-400 transition-all px-1"
                           />
                         </td>
                         <td className="p-2">
-                          <Button 
-                            variant="ghost" 
-                            size="icon" 
+                          <Button
+                            variant="ghost"
+                            size="icon"
                             className="h-8 w-8 text-zinc-300 hover:text-rose-600"
                             onClick={() => setDeleteIndex(i)}
                           >

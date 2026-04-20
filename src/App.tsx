@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { auth, db, signIn, logOut, Transaction, UserProfile, Account, Category, Budget } from "@/lib/firebase";
+import { cn } from "@/lib/utils";
 import { onAuthStateChanged, User } from "firebase/auth";
 import { collection, query, where, orderBy, onSnapshot, doc, getDoc, setDoc } from "firebase/firestore";
 import AnnualDashboard from "@/components/AnnualDashboard";
@@ -13,15 +14,23 @@ import BudgetManager from "@/components/BudgetManager";
 import WalletManager from "@/components/WalletManager";
 import CategoryManager from "@/components/CategoryManager";
 import Auth from "@/components/Auth";
+import LandingPage from "@/components/LandingPage";
 import { Toaster } from "sonner";
 import { toast } from "sonner";
-import { LayoutDashboard, Receipt, PlusCircle, LogOut, Users, ChevronLeft, ChevronRight, Filter, X, SlidersHorizontal, Flame, Layers, Target, Wallet, Tag } from "lucide-react";
+import { LayoutDashboard, Receipt, PlusCircle, LogOut, Users, ChevronLeft, ChevronRight, Filter, X, SlidersHorizontal, Flame, Layers, Target, Wallet, Tag, MoreVertical, UserCircle } from "lucide-react";
 import TransactionForm from "@/components/TransactionForm";
 import ImportModal from "@/components/ImportModal";
 import ShareModal from "@/components/ShareModal";
 import { Button } from "../components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator
+} from "../components/ui/dropdown-menu";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
-import { getMonth, parseISO, format } from "date-fns";
+import { getMonth, parseISO, format, addMonths, subMonths, setMonth } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { Routes, Route, Navigate, useParams, useNavigate, useLocation, useMatch } from "react-router-dom";
 import { CATEGORIES, PAYMENT_METHODS } from "@/lib/constants";
@@ -31,6 +40,8 @@ export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [isGroupLoaded, setIsGroupLoaded] = useState(false);
+
   const [loading, setLoading] = useState(true);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [isImportOpen, setIsImportOpen] = useState(false);
@@ -39,6 +50,7 @@ export default function App() {
   const [groupProfiles, setGroupProfiles] = useState<UserProfile[]>([]);
 
   const location = useLocation();
+  const navigate = useNavigate();
   const match = useMatch("/:year/:month?/:tab?");
   const routeYear = match?.params.year;
   const routeMonth = match?.params.month;
@@ -79,10 +91,18 @@ export default function App() {
     return () => unsubscribeAuth();
   }, []);
 
+  // Group UIDs for stable dependencies (Stringified check)
+  const groupUids = useMemo(() => {
+    if (!user) return [];
+    return Array.from(new Set([user.uid, ...groupProfiles.map(p => p.uid)].filter(Boolean))).sort();
+  }, [user?.uid, groupProfiles]);
+
+  const groupUidsKey = groupUids.join(',');
+
   // Group profiles real-time listener (Find everyone who shared with me)
   useEffect(() => {
     if (!user) return;
-    
+
     const qSharedWithMe = query(
       collection(db, "users"),
       where("sharedWith", "array-contains", user.email)
@@ -91,6 +111,7 @@ export default function App() {
     const unsubscribeShared = onSnapshot(qSharedWithMe, (snapshot) => {
       const profiles = snapshot.docs.map(d => d.data() as UserProfile);
       setGroupProfiles(profiles);
+      setIsGroupLoaded(true);
       console.log(`🤝 [Group] Encontrados ${profiles.length} perfis compartilhando com você.`);
     });
 
@@ -110,17 +131,14 @@ export default function App() {
 
   // Accounts real-time listener (Self + Shared)
   useEffect(() => {
-    if (!user) return;
-    
-    // Group UIDs including self
-    const groupUids = [user.uid, ...groupProfiles.map(p => p.uid)];
-    
+    if (!user || groupUids.length === 0) return;
+
     // Listen for accounts owned by anyone in the group
     const qGroupAccounts = query(collection(db, "accounts"), where("userId", "in", groupUids));
-    
+
     // Also listen for accounts explicitly shared with my email
     const qExplicitShared = query(collection(db, "accounts"), where("sharedWith", "array-contains", user.email ?? ""));
-    
+
     const accMap = new Map<string, Account>();
     const update = (snap: any) => {
       snap.docChanges().forEach((change: any) => {
@@ -129,15 +147,15 @@ export default function App() {
       });
       setAccounts(Array.from(accMap.values()));
     };
-    
+
     const u1 = onSnapshot(qGroupAccounts, update);
     const u2 = onSnapshot(qExplicitShared, update);
-    
+
     return () => { u1(); u2(); };
-  }, [user, groupProfiles]);
+  }, [user?.uid, groupUidsKey, user?.email]);
 
   useEffect(() => {
-    if (!user || !profile) return;
+    if (!user || !profile || groupUids.length === 0) return;
 
     // Calcular o intervalo de datas para a consulta
     let dateStart: string;
@@ -152,9 +170,7 @@ export default function App() {
       dateEnd = `${selectedYear}-${monthStr}-31`; // Firestore aceita até o 31 sem problemas
     }
 
-    // Group IDs including self
-    const groupUids = [user.uid, ...groupProfiles.map(p => p.uid)];
-
+    // Calculate group UIDs including self (already memoized)
     console.log(`📡 [Firestore] Carregando transações do grupo: ${groupUids.join(', ')}`);
 
     // Fetch transactions from everyone in the group
@@ -212,42 +228,60 @@ export default function App() {
       unsubGroup();
       unsubShared();
     };
-  }, [user, profile, groupProfiles, selectedYear, currentMonthIdx, isAnnual]);
+  }, [user?.uid, profile?.uid, groupUidsKey, selectedYear, currentMonthIdx, isAnnual, user?.email]);
 
-  if (loading) {
+  if (loading || (user && !isGroupLoaded)) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-zinc-50">
-        <div className="animate-pulse text-zinc-400 font-medium">Carregando...</div>
+      <div className="flex items-center justify-center min-h-screen bg-zinc-50 flex-col gap-4">
+        <div className="relative w-12 h-12">
+          <div className="absolute inset-0 border-4 border-blue-100 rounded-full"></div>
+          <div className="absolute inset-0 border-4 border-t-blue-600 rounded-full animate-spin"></div>
+        </div>
+        <div className="text-zinc-400 font-medium animate-pulse text-sm">Sincronizando dados da família...</div>
       </div>
     );
   }
 
-  if (!user) {
-    return <Auth onSignIn={signIn} />;
-  }
 
   return (
     <Routes>
-      <Route path="/:year/:month?/:tab?" element={
-        <MainContent
-          user={user}
-          profile={profile}
-          transactions={transactions}
-          accounts={accounts}
-          isFormOpen={isFormOpen}
-          setIsFormOpen={setIsFormOpen}
-          isImportOpen={isImportOpen}
-          setIsImportOpen={setIsImportOpen}
-          isShareOpen={isShareOpen}
-          setIsShareOpen={setIsShareOpen}
-          logOut={logOut}
-          selectedYear={selectedYear}
-          isAnnual={isAnnual}
-          currentMonthIdx={currentMonthIdx}
-          groupProfiles={[profile, ...groupProfiles].filter((p): p is UserProfile => !!p)}
+      <Route path="/" element={
+        <LandingPage 
+          onLogin={() => navigate("/login")} 
+          onSignUp={() => navigate("/signup")} 
         />
       } />
-      <Route path="/" element={<Navigate to={`/${new Date().getFullYear()}/${(new Date().getMonth() + 1).toString().padStart(2, '0')}/dashboard`} replace />} />
+      <Route path="/login" element={
+        user 
+          ? <Navigate to={`/${new Date().getFullYear()}/${(new Date().getMonth() + 1).toString().padStart(2, '0')}/dashboard`} replace /> 
+          : <Auth onSignIn={signIn} />
+      } />
+      <Route path="/signup" element={
+        user 
+          ? <Navigate to={`/${new Date().getFullYear()}/${(new Date().getMonth() + 1).toString().padStart(2, '0')}/dashboard`} replace /> 
+          : <Auth onSignIn={signIn} />
+      } />
+      <Route path="/:year/:month?/:tab?" element={
+        !user
+          ? <Navigate to="/login" replace />
+          : <MainContent
+              user={user}
+              profile={profile}
+              transactions={transactions}
+              accounts={accounts}
+              isFormOpen={isFormOpen}
+              setIsFormOpen={setIsFormOpen}
+              isImportOpen={isImportOpen}
+              setIsImportOpen={setIsImportOpen}
+              isShareOpen={isShareOpen}
+              setIsShareOpen={setIsShareOpen}
+              logOut={logOut}
+              selectedYear={selectedYear}
+              isAnnual={isAnnual}
+              currentMonthIdx={currentMonthIdx}
+              groupProfiles={[profile, ...groupProfiles].filter((p): p is UserProfile => !!p)}
+            />
+      } />
     </Routes>
   );
 }
@@ -293,10 +327,62 @@ function MainContent({
   const [walletFilter, setWalletFilter] = useState("all");
   const [userFilter, setUserFilter] = useState("all");
 
-  const handleYearChange = (delta: number) => {
-    const newYear = selectedYear + delta;
-    const newPath = location.pathname.replace(`/${selectedYear}/`, `/${newYear}/`);
-    navigate(newPath);
+  const MONTHS = [
+    { value: "01", label: "Janeiro" },
+    { value: "02", label: "Fevereiro" },
+    { value: "03", label: "Março" },
+    { value: "04", label: "Abril" },
+    { value: "05", label: "Maio" },
+    { value: "06", label: "Junho" },
+    { value: "07", label: "Julho" },
+    { value: "08", label: "Agosto" },
+    { value: "09", label: "Setembro" },
+    { value: "10", label: "Outubro" },
+    { value: "11", label: "Novembro" },
+    { value: "12", label: "Dezembro" },
+  ];
+
+  const handleYearChange = (delta: number | string) => {
+    const newYear = typeof delta === 'number' ? selectedYear + delta : parseInt(delta);
+    const pathParts = location.pathname.split('/').filter(Boolean);
+    // pathParts: [year, month, tab]
+    pathParts[0] = newYear.toString();
+    navigate(`/${pathParts.join('/')}`);
+  };
+
+  const handleMonthChange = (newMonth: string) => {
+    const pathParts = location.pathname.split('/').filter(Boolean);
+    // index 0 is year, index 1 is month
+    pathParts[1] = newMonth;
+    navigate(`/${pathParts.join('/')}`);
+  };
+
+  const handleNavigateMonth = (delta: number) => {
+    const currentDate = isAnnual
+      ? new Date(selectedYear, 0, 1)
+      : new Date(selectedYear, currentMonthIdx, 1);
+
+    const newDate = delta > 0 ? addMonths(currentDate, 1) : subMonths(currentDate, 1);
+    const newYear = newDate.getFullYear();
+    const newMonth = (newDate.getMonth() + 1).toString().padStart(2, '0');
+
+    const pathParts = location.pathname.split('/').filter(Boolean);
+    // pathParts: [year, month, tab]
+    pathParts[0] = newYear.toString();
+    pathParts[1] = newMonth;
+    navigate(`/${pathParts.join('/')}`);
+  };
+
+  const handleToggleView = () => {
+    const pathParts = location.pathname.split('/').filter(Boolean);
+    if (isAnnual) {
+      // Go to January of the same year (or current month if it feels better)
+      const currentMonth = (new Date().getMonth() + 1).toString().padStart(2, '0');
+      pathParts[1] = currentMonth;
+    } else {
+      pathParts[1] = 'annual';
+    }
+    navigate(`/${pathParts.join('/')}`);
   };
 
   const handleTabChange = (newValue: string) => {
@@ -322,6 +408,9 @@ function MainContent({
     const matchUser = userFilter === "all" || tx.userId === userFilter;
     return matchCategory && matchPayment && matchStatus && matchWallet && matchUser;
   });
+
+  const selectedMonthValue = (currentMonthIdx + 1).toString().padStart(2, '0');
+  const selectedMonthLabel = MONTHS.find(m => m.value === selectedMonthValue)?.label;
 
   const hasActiveFilters = categoryFilter !== "all" || paymentFilter !== "all" || statusFilter !== "all" || walletFilter !== "all" || userFilter !== "all";
 
@@ -368,36 +457,139 @@ function MainContent({
 
   return (
     <div className="min-h-screen bg-zinc-50 text-zinc-900 font-sans">
-      <header className="sticky top-0 z-10 bg-white border-b border-zinc-200 px-4 py-3">
-        <div className="max-w-6xl mx-auto flex items-center justify-between">
-          <div className="flex items-center gap-2 cursor-pointer" onClick={() => navigate('/')}>
-            <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center text-white font-extrabold shadow-sm">F</div>
-            <h1 className="text-lg font-bold tracking-tight hidden xs:block">Finanças em Família</h1>
-            <h1 className="text-lg font-bold tracking-tight xs:hidden">Finanly</h1>
+      <header className="sticky top-0 z-10 bg-white border-b border-zinc-200 px-2 sm:px-4 py-2">
+        <div className="max-w-6xl mx-auto flex items-center justify-between gap-4">
+          {/* Left: Branding */}
+          <div className="flex items-center gap-2 cursor-pointer shrink-0" onClick={() => navigate('/')}>
+            <div className="w-8 h-8 sm:w-10 sm:h-10 bg-blue-600 rounded-xl flex items-center justify-center text-white font-black shadow-lg shadow-blue-200">F</div>
+            <div className="flex flex-col -gap-1 hidden xs:flex lg:flex">
+              <h1 className="text-base sm:text-lg font-black tracking-tight text-zinc-900 leading-none">Finanly</h1>
+              <span className="text-[10px] font-medium text-zinc-400">Família</span>
+            </div>
           </div>
 
-          <div className="flex items-center gap-4">
-            <div className="flex items-center bg-zinc-100 rounded-lg p-0.5 sm:p-1">
-              <Button variant="ghost" size="icon" className="h-7 w-7 sm:h-8 sm:w-8" onClick={() => handleYearChange(-1)}>
-                <ChevronLeft className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-              </Button>
-              <span className="px-2 sm:px-3 text-xs sm:text-sm font-bold text-zinc-700">{selectedYear}</span>
-              <Button variant="ghost" size="icon" className="h-7 w-7 sm:h-8 sm:w-8" onClick={() => handleYearChange(1)}>
-                <ChevronRight className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-              </Button>
+          {/* Center: Month/Temporal Navigation (The Heart of the UX) */}
+          <div className="flex items-center gap-2 sm:gap-4">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 sm:h-9 sm:w-9 rounded-full text-zinc-400 hover:text-blue-600 hover:bg-blue-50 transition-all border border-zinc-100"
+              onClick={() => handleNavigateMonth(-1)}
+            >
+              <ChevronLeft className="w-4 h-4 sm:w-5 sm:h-5" />
+            </Button>
+
+            <div className="flex flex-col items-center">
+              <h2 className="text-sm sm:text-base font-black tracking-tight text-zinc-900 capitalize min-w-[100px] sm:min-w-[140px] text-center">
+                {isAnnual
+                  ? selectedYear
+                  : format(new Date(selectedYear, currentMonthIdx, 1), 'MMMM yyyy', { locale: ptBR })
+                }
+              </h2>
+              {isAnnual && <span className="text-[9px] font-bold text-blue-600 uppercase tracking-widest">Visão Anual</span>}
             </div>
 
-            <Button variant="ghost" size="sm" onClick={() => setIsShareOpen(true)} className="gap-2 text-zinc-600 hover:text-blue-600">
-              <Users className="w-4 h-4" />
-              <span className="hidden sm:inline">Compartilhar</span>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 sm:h-9 sm:w-9 rounded-full text-zinc-400 hover:text-blue-600 hover:bg-blue-50 transition-all border border-zinc-100"
+              onClick={() => handleNavigateMonth(1)}
+            >
+              <ChevronRight className="w-4 h-4 sm:w-5 sm:h-5" />
             </Button>
-            <div className="hidden md:flex items-center gap-2 text-sm text-zinc-500">
-              <img src={user.photoURL || ""} alt="" className="w-6 h-6 rounded-full" referrerPolicy="no-referrer" />
-              <span>{user.displayName}</span>
+          </div>
+
+          {/* Right: Actions & User (Responsive) */}
+          <div className="flex items-center gap-2">
+            {/* Desktop Quick Actions */}
+            <div className="hidden md:flex items-center gap-2">
+              <Button
+                variant={isAnnual ? "default" : "outline"}
+                size="sm"
+                onClick={handleToggleView}
+                className={cn(
+                  "h-9 px-4 rounded-full font-bold text-xs gap-2 transition-all",
+                  isAnnual ? "bg-blue-600 shadow-md shadow-blue-100" : "bg-white border-zinc-200"
+                )}
+              >
+                <Target className="w-3.5 h-3.5" />
+                {isAnnual ? "Ver Mensal" : "Ver Anual"}
+              </Button>
+
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setIsShareOpen(true)}
+                className="h-9 w-9 text-zinc-500 hover:text-blue-600 hover:bg-blue-50 rounded-full border border-zinc-100"
+                title="Compartilhar"
+              >
+                <Users className="w-4 h-4" />
+              </Button>
+
+              <div className="w-px h-6 bg-zinc-200 mx-1" />
+
+              <DropdownMenu>
+                <DropdownMenuTrigger>
+                  <button className="flex items-center gap-2 p-1 pl-1 pr-1.5 sm:pr-3 rounded-full bg-white border border-zinc-200 hover:border-blue-200 hover:bg-blue-50/30 transition-all shadow-sm outline-none group shrink-0">
+                    <img src={user.photoURL || ""} alt="" className="w-7 h-7 sm:w-8 sm:h-8 rounded-full border border-white shadow-sm object-cover" referrerPolicy="no-referrer" />
+                    <div className="flex flex-col items-start hidden sm:flex">
+                      <span className="text-[11px] font-bold text-zinc-900 leading-tight">{user.displayName?.split(' ')[0]}</span>
+                      <span className="text-[9px] text-zinc-500 font-medium leading-tight">Perfil</span>
+                    </div>
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" sideOffset={12}>
+                  <div className="px-4 py-3 flex items-center gap-3 border-b border-zinc-100 mb-1">
+                    <img src={user.photoURL || ""} alt="" className="w-10 h-10 rounded-full" referrerPolicy="no-referrer" />
+                    <div className="flex flex-col">
+                      <span className="font-bold text-sm text-zinc-900">{user.displayName}</span>
+                      <span className="text-[10px] text-zinc-500 truncate max-w-[150px]">{user.email}</span>
+                    </div>
+                  </div>
+                  <DropdownMenuItem onClick={logOut} variant="destructive">
+                    <LogOut className="w-4 h-4" />
+                    Sair da Conta
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
-            <Button variant="ghost" size="icon" onClick={logOut} title="Sair">
-              <LogOut className="w-4 h-4" />
-            </Button>
+
+            {/* Mobile Hamburger Menu (Consolidates everything else) */}
+            <div className="md:hidden">
+              <DropdownMenu>
+                <DropdownMenuTrigger>
+                  <Button variant="ghost" size="icon" className="h-9 w-9 rounded-full bg-zinc-50 border border-zinc-200">
+                    <MoreVertical className="w-5 h-5 text-zinc-600" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" sideOffset={12} className="min-w-[200px]">
+                  <div className="px-4 py-3 flex items-center gap-3 border-b border-zinc-100 mb-2">
+                    <img src={user.photoURL || ""} alt="" className="w-10 h-10 rounded-full" referrerPolicy="no-referrer" />
+                    <div className="flex flex-col">
+                      <span className="font-bold text-sm text-zinc-900 leading-none">{user.displayName?.split(' ')[0]}</span>
+                      <span className="text-[10px] text-zinc-500 mt-1">Conectado</span>
+                    </div>
+                  </div>
+
+                  <DropdownMenuItem onClick={handleToggleView} className="gap-3 py-2.5">
+                    <Target className="w-4 h-4 text-blue-600" />
+                    {isAnnual ? "Ver Visualização Mensal" : "Ver Visualização Anual"}
+                  </DropdownMenuItem>
+
+                  <DropdownMenuItem onClick={() => setIsShareOpen(true)} className="gap-3 py-2.5">
+                    <Users className="w-4 h-4 text-zinc-600" />
+                    Compartilhar Conta
+                  </DropdownMenuItem>
+
+                  <DropdownMenuSeparator />
+
+                  <DropdownMenuItem onClick={logOut} variant="destructive" className="gap-3 py-2.5">
+                    <LogOut className="w-4 h-4" />
+                    Sair
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
           </div>
         </div>
       </header>
@@ -423,7 +615,10 @@ function MainContent({
         </div>
 
         <Tabs value={tab} onValueChange={handleTabChange} className="w-full">
-          <TabsList className="flex w-full overflow-x-auto flex-nowrap h-auto justify-start md:justify-center md:grid md:grid-cols-7 mb-6 bg-zinc-100/50 p-1 rounded-xl scrollbar-hide">
+          <TabsList className={cn(
+            "flex w-full overflow-x-auto flex-nowrap h-auto justify-start md:justify-center mb-6 bg-zinc-100/50 p-1 rounded-xl scrollbar-hide md:grid",
+            isAnnual ? "md:grid-cols-2 max-w-md" : "md:grid-cols-7"
+          )}>
             <TabsTrigger value="dashboard" className="flex-none gap-1.5 text-[11px] sm:text-xs px-5 py-2">
               <LayoutDashboard className="w-3.5 h-3.5" />
               Dashboard
@@ -432,26 +627,31 @@ function MainContent({
               <Receipt className="w-3.5 h-3.5" />
               Transações
             </TabsTrigger>
-            <TabsTrigger value="heatmap" className="flex-none gap-1.5 text-[11px] sm:text-xs px-5 py-2">
-              <Flame className="w-3.5 h-3.5" />
-              Mapa
-            </TabsTrigger>
-            <TabsTrigger value="installments" className="flex-none gap-1.5 text-[11px] sm:text-xs px-5 py-2">
-              <Layers className="w-3.5 h-3.5" />
-              Parcelas
-            </TabsTrigger>
-            <TabsTrigger value="budgets" className="flex-none gap-1.5 text-[11px] sm:text-xs px-5 py-2">
-              <Target className="w-3.5 h-3.5" />
-              Metas
-            </TabsTrigger>
-            <TabsTrigger value="wallets" className="flex-none gap-1.5 text-[11px] sm:text-xs px-5 py-2">
-              <Wallet className="w-3.5 h-3.5" />
-              Carteiras
-            </TabsTrigger>
-            <TabsTrigger value="categories" className="flex-none gap-1.5 text-[11px] sm:text-xs px-5 py-2 border-none">
-              <Tag className="w-3.5 h-3.5" />
-              Categorias
-            </TabsTrigger>
+
+            {!isAnnual && (
+              <>
+                <TabsTrigger value="heatmap" className="flex-none gap-1.5 text-[11px] sm:text-xs px-5 py-2">
+                  <Flame className="w-3.5 h-3.5" />
+                  Mapa
+                </TabsTrigger>
+                <TabsTrigger value="installments" className="flex-none gap-1.5 text-[11px] sm:text-xs px-5 py-2">
+                  <Layers className="w-3.5 h-3.5" />
+                  Parcelas
+                </TabsTrigger>
+                <TabsTrigger value="budgets" className="flex-none gap-1.5 text-[11px] sm:text-xs px-5 py-2">
+                  <Target className="w-3.5 h-3.5" />
+                  Metas
+                </TabsTrigger>
+                <TabsTrigger value="wallets" className="flex-none gap-1.5 text-[11px] sm:text-xs px-5 py-2">
+                  <Wallet className="w-3.5 h-3.5" />
+                  Carteiras
+                </TabsTrigger>
+                <TabsTrigger value="categories" className="flex-none gap-1.5 text-[11px] sm:text-xs px-5 py-2 border-none">
+                  <Tag className="w-3.5 h-3.5" />
+                  Categorias
+                </TabsTrigger>
+              </>
+            )}
           </TabsList>
 
           <TabsContent value="dashboard" className="space-y-6">
