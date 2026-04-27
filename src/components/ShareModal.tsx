@@ -3,6 +3,7 @@ import emailjs from "@emailjs/browser";
 import { db, UserProfile } from "@/lib/firebase";
 import { doc, updateDoc, arrayUnion, arrayRemove, collection, query, where, getDocs } from "firebase/firestore";
 import { toast } from "sonner";
+import { chunkForFirestore, FIRESTORE_IN_LIMIT, normalizeEmail } from "@/lib/sharing";
 import { UserPlus, X, Mail, CheckCircle2, Clock, Users, Send } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../../components/ui/dialog";
 import { Label } from "../../components/ui/label";
@@ -41,14 +42,19 @@ export default function ShareModal({ isOpen, onClose, profile }: ShareModalProps
     setLoadingUsers(true);
     try {
       const usersRef = collection(db, "users");
-      const q = query(usersRef, where("email", "in", emails));
-      const snapshot = await getDocs(q);
-      
       const foundProfiles = new Map<string, UserProfile>();
-      snapshot.docs.forEach(d => {
-        const p = d.data() as UserProfile;
-        foundProfiles.set(p.email.toLowerCase(), p);
-      });
+      const normalizedEmails = Array.from(new Set(emails.map((email) => normalizeEmail(email)).filter(Boolean))) as string[];
+      const emailChunks = chunkForFirestore(normalizedEmails, FIRESTORE_IN_LIMIT);
+
+      for (const emailChunk of emailChunks) {
+        const q = query(usersRef, where("email", "in", emailChunk));
+        const snapshot = await getDocs(q);
+
+        snapshot.docs.forEach(d => {
+          const p = d.data() as UserProfile;
+          foundProfiles.set(p.email.toLowerCase(), p);
+        });
+      }
 
       const resolved: SharedUser[] = emails.map(e => {
         const found = foundProfiles.get(e.toLowerCase());
@@ -105,6 +111,11 @@ export default function ShareModal({ isOpen, onClose, profile }: ShareModalProps
 
     if (profile.sharedWith?.includes(normalizedEmail)) {
       toast.error("Este email já tem acesso.");
+      return;
+    }
+
+    if ((profile.sharedWith?.length ?? 0) >= FIRESTORE_IN_LIMIT) {
+      toast.error(`Limite atual de compartilhamento atingido (${FIRESTORE_IN_LIMIT} emails).`);
       return;
     }
 

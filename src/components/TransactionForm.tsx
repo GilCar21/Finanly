@@ -26,7 +26,10 @@ export default function TransactionForm({ isOpen, onClose, userId, sharedWith, i
   const [isAddingCategory, setIsAddingCategory] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState("");
   
-  const allCategories = [...CATEGORIES, ...customCategories];
+  const allCategories = [...CATEGORIES, ...customCategories].filter(
+    (category, index, categories) =>
+      categories.findIndex((item) => item.name.toLowerCase() === category.name.toLowerCase()) === index
+  );
   
   const emptyForm = {
     date: new Date().toISOString().split('T')[0],

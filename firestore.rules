@@ -1,0 +1,85 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function normalizedEmail() {
+      return request.auth.token.email != null
+        ? lower(request.auth.token.email)
+        : null;
+    }
+
+    function currentUserDoc() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function isCurrentUser(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isSharedRecipient(sharedWith) {
+      return isAuthenticated() &&
+        normalizedEmail() != null &&
+        sharedWith is list &&
+        sharedWith.hasAny([normalizedEmail()]);
+    }
+
+    function hasDocumentAccess(resourceData) {
+      return isCurrentUser(resourceData.userId) || isSharedRecipient(resourceData.sharedWith);
+    }
+
+    function isOwnerCreating(data) {
+      return isCurrentUser(data.userId);
+    }
+
+    function sharedWithIsValid(data) {
+      return !(data.sharedWith is list) || data.sharedWith.size() <= 10;
+    }
+
+    function immutableOwnership(prev, next) {
+      return prev.userId == next.userId;
+    }
+
+    match /users/{userId} {
+      allow create: if isCurrentUser(userId) &&
+        request.resource.data.uid == request.auth.uid &&
+        request.resource.data.email == request.auth.token.email;
+
+      allow read: if isCurrentUser(userId) ||
+        (
+          isAuthenticated() &&
+          resource.data.sharedWith is list &&
+          resource.data.sharedWith.hasAny([normalizedEmail()])
+        );
+
+      allow update: if isCurrentUser(userId) &&
+        request.resource.data.uid == resource.data.uid &&
+        request.resource.data.email == resource.data.email &&
+        sharedWithIsValid(request.resource.data);
+
+      allow delete: if false;
+    }
+
+    match /transactions/{transactionId} {
+      allow read: if hasDocumentAccess(resource.data);
+      allow create: if isOwnerCreating(request.resource.data) &&
+        sharedWithIsValid(request.resource.data);
+      allow update: if isCurrentUser(resource.data.userId) &&
+        immutableOwnership(resource.data, request.resource.data) &&
+        sharedWithIsValid(request.resource.data);
+      allow delete: if isCurrentUser(resource.data.userId);
+    }
+
+    match /accounts/{accountId} {
+      allow read: if hasDocumentAccess(resource.data);
+      allow create: if isOwnerCreating(request.resource.data) &&
+        sharedWithIsValid(request.resource.data);
+      allow update: if isCurrentUser(resource.data.userId) &&
+        immutableOwnership(resource.data, request.resource.data) &&
+        sharedWithIsValid(request.resource.data);
+      allow delete: if isCurrentUser(resource.data.userId);
+    }
+  }
+}

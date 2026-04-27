@@ -54,11 +54,38 @@ type VoiceState = "idle" | "listening" | "processing" | "unsupported";
 // How long (ms) to wait after the last speech fragment before auto-sending
 const SILENCE_TIMEOUT_MS = 1500;
 
+function normalizeSpeechChunk(text: string) {
+  return text.replace(/\s+/g, " ").trim();
+}
+
+function buildSpeechPreview(results: SpeechRecognitionResultList) {
+  const finalChunks: string[] = [];
+  const interimChunks: string[] = [];
+
+  for (let i = 0; i < results.length; i++) {
+    const transcript = normalizeSpeechChunk(results[i][0]?.transcript ?? "");
+    if (!transcript) continue;
+
+    if (results[i].isFinal) {
+      const lastFinal = finalChunks[finalChunks.length - 1];
+      if (lastFinal !== transcript) {
+        finalChunks.push(transcript);
+      }
+    } else {
+      interimChunks.push(transcript);
+    }
+  }
+
+  return {
+    finalText: finalChunks.join(" ").trim(),
+    interimText: interimChunks.join(" ").trim(),
+  };
+}
+
 function useVoiceInput(onTranscript: (text: string) => void) {
   const [voiceState, setVoiceState] = useState<VoiceState>("idle");
   const [interimText, setInterimText] = useState("");
   const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
-  // Accumulate all final chunks across continuous results
   const accumulatedRef = useRef("");
   // Timer that fires when user pauses long enough
   const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -121,17 +148,10 @@ function useVoiceInput(onTranscript: (text: string) => void) {
     };
 
     recognition.onresult = (e: SpeechRecognitionEvent) => {
-      let interim = "";
-      for (let i = e.resultIndex; i < e.results.length; i++) {
-        const transcript = e.results[i][0].transcript;
-        if (e.results[i].isFinal) {
-          accumulatedRef.current += (accumulatedRef.current ? " " : "") + transcript;
-        } else {
-          interim += transcript;
-        }
-      }
+      const { finalText, interimText: liveInterimText } = buildSpeechPreview(e.results);
+      accumulatedRef.current = finalText;
       // Show what we have so far + interim in the input preview
-      const preview = (accumulatedRef.current + (interim ? " " + interim : "")).trim();
+      const preview = [finalText, liveInterimText].filter(Boolean).join(" ").trim();
       setInterimText(preview);
 
       // Reset the silence timer on every new result

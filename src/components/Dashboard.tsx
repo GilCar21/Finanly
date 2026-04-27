@@ -2,11 +2,12 @@ import React from "react";
 import { Transaction } from "@/lib/firebase";
 
 import { formatCurrency, CATEGORIES, getCategoryColor } from "@/lib/constants";
-import { PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Legend } from "recharts";
+import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, Legend } from "recharts";
 import { ArrowUpCircle, ArrowDownCircle, CreditCard, Calendar } from "lucide-react";
 import { format, startOfMonth, endOfMonth, isWithinInterval, parseISO } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
+import SafeResponsiveContainer from "./ui/safe-responsive-container";
 
 interface DashboardProps {
   transactions: Transaction[];
@@ -113,7 +114,7 @@ export default function Dashboard({ transactions }: DashboardProps) {
           </CardHeader>
           <CardContent className="h-[300px]">
             {categoryData.length > 0 ? (
-              <ResponsiveContainer width="100%" height="100%" minWidth={0}>
+              <SafeResponsiveContainer>
               <PieChart>
                 <Pie
                   data={categoryData}
@@ -134,7 +135,7 @@ export default function Dashboard({ transactions }: DashboardProps) {
                 />
                 <Legend />
               </PieChart>
-              </ResponsiveContainer>
+              </SafeResponsiveContainer>
             ) : (
               <div className="h-full flex items-center justify-center text-zinc-400 text-sm">
                 Sem dados para exibir
@@ -149,7 +150,7 @@ export default function Dashboard({ transactions }: DashboardProps) {
           </CardHeader>
           <CardContent className="h-[300px]">
             {dailyData.length > 0 ? (
-              <ResponsiveContainer width="100%" height="100%" minWidth={0}>
+              <SafeResponsiveContainer>
               <BarChart data={dailyData}>
                 <XAxis dataKey="day" fontSize={12} tickLine={false} axisLine={false} />
                 <YAxis fontSize={12} tickLine={false} axisLine={false} tickFormatter={(v) => `R$${v}`} />
@@ -160,7 +161,7 @@ export default function Dashboard({ transactions }: DashboardProps) {
                 />
                 <Bar dataKey="amount" fill="#3b82f6" radius={[4, 4, 0, 0]} />
               </BarChart>
-              </ResponsiveContainer>
+              </SafeResponsiveContainer>
             ) : (
               <div className="h-full flex items-center justify-center text-zinc-400 text-sm">
                 Sem dados para exibir

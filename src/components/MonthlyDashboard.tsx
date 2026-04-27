@@ -1,12 +1,13 @@
 import React, { useMemo } from "react";
 import { Transaction } from "@/lib/firebase";
 import { formatCurrency, CATEGORIES } from "@/lib/constants";
-import { PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Legend, CartesianGrid } from "recharts";
+import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, Legend, CartesianGrid } from "recharts";
 import { ArrowUpCircle, ArrowDownCircle, Wallet, Calendar, ChevronLeft } from "lucide-react";
 import { format, parseISO, startOfMonth, endOfMonth, eachDayOfInterval } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
+import SafeResponsiveContainer from "./ui/safe-responsive-container";
 
 interface MonthlyDashboardProps {
   transactions: Transaction[];
@@ -125,7 +126,7 @@ export default function MonthlyDashboard({ transactions, month, year, onBackToAn
           </CardHeader>
           <CardContent className="h-[300px]">
             {stats.categoryData.length > 0 ? (
-              <ResponsiveContainer width="100%" height="100%">
+              <SafeResponsiveContainer>
                 <PieChart>
                   <Pie
                     data={stats.categoryData}
@@ -146,7 +147,7 @@ export default function MonthlyDashboard({ transactions, month, year, onBackToAn
                   />
                   <Legend />
                 </PieChart>
-              </ResponsiveContainer>
+              </SafeResponsiveContainer>
             ) : (
               <div className="h-full flex items-center justify-center text-zinc-400 text-sm italic">
                 Nenhuma despesa registrada neste mês.
@@ -160,7 +161,7 @@ export default function MonthlyDashboard({ transactions, month, year, onBackToAn
             <CardTitle className="text-lg font-semibold">Evolução Diária de Gastos</CardTitle>
           </CardHeader>
           <CardContent className="h-[300px]">
-            <ResponsiveContainer width="100%" height="100%">
+            <SafeResponsiveContainer>
               <BarChart data={stats.dailyData}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f5f5f5" />
                 <XAxis dataKey="day" fontSize={10} tickLine={false} axisLine={false} />
@@ -172,7 +173,7 @@ export default function MonthlyDashboard({ transactions, month, year, onBackToAn
                 />
                 <Bar dataKey="amount" fill="#3b82f6" radius={[2, 2, 0, 0]} />
               </BarChart>
-            </ResponsiveContainer>
+            </SafeResponsiveContainer>
           </CardContent>
         </Card>
       </div>

@@ -2,7 +2,24 @@ node_modules/
 build/
 dist/
 coverage/
+
+# Local environment files
 .DS_Store
+Thumbs.db
 *.log
 .env*
 !.env.example
+
+# Local overrides
+*.local
+
+# Editor / IDE
+.vscode/
+.idea/
+
+# Vite / build caches
+.vite/
+
+# Firebase / Netlify local state
+.firebase/
+.netlify/

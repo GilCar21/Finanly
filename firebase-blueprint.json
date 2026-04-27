@@ -13,7 +13,7 @@
         "status": { "type": "string", "enum": ["paid", "pending"], "description": "Payment status" },
         "installments": { "type": "string", "description": "Installment info (e.g., 2 de 9)" },
         "userId": { "type": "string", "description": "Owner of the transaction" },
-        "sharedWith": { "type": "array", "items": { "type": "string" }, "description": "List of user IDs this is shared with" }
+        "sharedWith": { "type": "array", "items": { "type": "string" }, "description": "List of normalized email addresses this is shared with" }
       },
       "required": ["date", "description", "amount", "category", "userId"]
     },

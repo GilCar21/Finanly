@@ -183,7 +183,10 @@ export default function BudgetManager({ profile, transactions, userId }: BudgetM
   const monthLabel = format(now, "MMMM 'de' yyyy", { locale: ptBR });
 
   const budgets: Budget[] = profile.budgets ?? [];
-  const allCategories = CATEGORIES;
+  const allCategories = (profile.customCategories?.length ? [...CATEGORIES, ...profile.customCategories] : CATEGORIES).filter(
+    (category, index, categories) =>
+      categories.findIndex((item) => item.name.toLowerCase() === category.name.toLowerCase()) === index
+  );
 
   // Monthly spending per category (expenses only)
   const spendingByCategory = useMemo(() => {

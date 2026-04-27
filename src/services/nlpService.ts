@@ -1,10 +1,8 @@
-import { GoogleGenAI } from "@google/genai";
 import { Transaction } from "@/lib/firebase";
+import { postGeminiFunction } from "@/lib/geminiApi";
 import { format, parseISO, startOfMonth, endOfMonth, subMonths, isWithinInterval } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { CATEGORIES, PAYMENT_METHODS } from "@/lib/constants";
-
-const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_GEMINI_API_KEY });
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -30,6 +28,10 @@ export interface NLPResult {
   answer?: string;
   // For unknown
   suggestion?: string;
+}
+
+interface NlpResponse {
+  result: NLPResult;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -140,28 +142,13 @@ REGRAS IMPORTANTES:
 - Responda APENAS com o JSON. Sem texto extra. Sem markdown.`;
 
   try {
-    const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
-      contents: [
-        { role: "user", parts: [{ text: systemPrompt }] },
-        { role: "model", parts: [{ text: '{"intent":' }] },
-        { role: "user", parts: [{ text: `Mensagem do usuário: "${userInput}"` }] },
-      ],
-      config: {
-        responseMimeType: "application/json",
-        temperature: 0.3,
-      },
+    const response = await postGeminiFunction<NlpResponse>("gemini-nlp", {
+      prompt: systemPrompt,
+      userInput,
     });
-
-    const raw = (response.text ?? "").trim();
-    // Extract JSON robustly
-    const jsonMatch = raw.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) throw new Error("No JSON found");
-
-    const result: NLPResult = JSON.parse(jsonMatch[0]);
-    return result;
+    return response.result;
   } catch (e) {
-    console.error("💥 [NLP] Error:", e);
+    console.error("Erro no processamento de linguagem natural:", e);
     return {
       intent: "unknown",
       suggestion: "Desculpe, não consegui entender. Tente algo como: 'Gastei R$ 50 no mercado hoje' ou 'Quanto gastei com lazer esse mês?'",

@@ -1,11 +1,12 @@
 import React, { useMemo } from "react";
 import { Transaction } from "@/lib/firebase";
 import { formatCurrency } from "@/lib/constants";
-import { BarChart, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer, CartesianGrid } from "recharts";
+import { BarChart, Bar, XAxis, YAxis, Tooltip, Legend, CartesianGrid } from "recharts";
 import { ArrowUpCircle, ArrowDownCircle, Wallet, Calendar, ChevronRight } from "lucide-react";
 import { format, parseISO, getMonth, isSameYear } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
+import SafeResponsiveContainer from "./ui/safe-responsive-container";
 
 interface AnnualDashboardProps {
   transactions: Transaction[];
@@ -109,7 +110,7 @@ export default function AnnualDashboard({ transactions, year, onSelectMonth }: A
           </CardTitle>
         </CardHeader>
         <CardContent className="h-[350px] pt-4">
-          <ResponsiveContainer width="100%" height="100%">
+          <SafeResponsiveContainer>
             <BarChart data={annualStats.monthlyData}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
               <XAxis 
@@ -135,7 +136,7 @@ export default function AnnualDashboard({ transactions, year, onSelectMonth }: A
               <Bar name="Receitas" dataKey="income" fill="#10b981" radius={[4, 4, 0, 0]} />
               <Bar name="Despesas" dataKey="expenses" fill="#f43f5e" radius={[4, 4, 0, 0]} />
             </BarChart>
-          </ResponsiveContainer>
+          </SafeResponsiveContainer>
         </CardContent>
       </Card>
 

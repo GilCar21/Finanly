@@ -35,6 +35,7 @@ import { ptBR } from "date-fns/locale";
 import { Routes, Route, Navigate, useParams, useNavigate, useLocation, useMatch } from "react-router-dom";
 import { CATEGORIES, PAYMENT_METHODS } from "@/lib/constants";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
+import { buildAccessibleUserIds, buildSharedEmailAccessList, chunkForFirestore, FIRESTORE_IN_LIMIT, normalizeEmail } from "@/lib/sharing";
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
@@ -92,12 +93,10 @@ export default function App() {
   }, []);
 
   // Group UIDs for stable dependencies (Stringified check)
-  const groupUids = useMemo(() => {
-    if (!user) return [];
-    return Array.from(new Set([user.uid, ...groupProfiles.map(p => p.uid)].filter(Boolean))).sort();
-  }, [user?.uid, groupProfiles]);
+  const groupUids = useMemo(() => buildAccessibleUserIds(user, groupProfiles), [user, groupProfiles]);
 
   const groupUidsKey = groupUids.join(',');
+  const accessibleEmails = useMemo(() => buildSharedEmailAccessList(user, [profile, ...groupProfiles].filter((p): p is UserProfile => !!p)), [user, profile, groupProfiles]);
 
   // Group profiles real-time listener (Find everyone who shared with me)
   useEffect(() => {
@@ -133,12 +132,6 @@ export default function App() {
   useEffect(() => {
     if (!user || groupUids.length === 0) return;
 
-    // Listen for accounts owned by anyone in the group
-    const qGroupAccounts = query(collection(db, "accounts"), where("userId", "in", groupUids));
-
-    // Also listen for accounts explicitly shared with my email
-    const qExplicitShared = query(collection(db, "accounts"), where("sharedWith", "array-contains", user.email ?? ""));
-
     const accMap = new Map<string, Account>();
     const update = (snap: any) => {
       snap.docChanges().forEach((change: any) => {
@@ -148,10 +141,23 @@ export default function App() {
       setAccounts(Array.from(accMap.values()));
     };
 
-    const u1 = onSnapshot(qGroupAccounts, update);
-    const u2 = onSnapshot(qExplicitShared, update);
+    const unsubscribers = [
+      ...chunkForFirestore(groupUids, FIRESTORE_IN_LIMIT).map((uidChunk) =>
+        onSnapshot(query(collection(db, "accounts"), where("userId", "in", uidChunk)), update)
+      ),
+    ];
 
-    return () => { u1(); u2(); };
+    const normalizedUserEmail = normalizeEmail(user.email);
+    if (normalizedUserEmail) {
+      unsubscribers.push(
+        onSnapshot(
+          query(collection(db, "accounts"), where("sharedWith", "array-contains", normalizedUserEmail)),
+          update
+        )
+      );
+    }
+
+    return () => { unsubscribers.forEach((unsubscribe) => unsubscribe()); };
   }, [user?.uid, groupUidsKey, user?.email]);
 
   useEffect(() => {
@@ -173,24 +179,6 @@ export default function App() {
     // Calculate group UIDs including self (already memoized)
     console.log(`📡 [Firestore] Carregando transações do grupo: ${groupUids.join(', ')}`);
 
-    // Fetch transactions from everyone in the group
-    const qGroupTxs = query(
-      collection(db, "transactions"),
-      where("userId", "in", groupUids),
-      where("date", ">=", dateStart),
-      where("date", "<=", dateEnd),
-      orderBy("date", "desc")
-    );
-
-    // Fetch transactions shared with this user's email (legacy/external sharing)
-    const qExplicitSharedTxs = query(
-      collection(db, "transactions"),
-      where("sharedWith", "array-contains", user.email),
-      where("date", ">=", dateStart),
-      where("date", "<=", dateEnd),
-      orderBy("date", "desc")
-    );
-
     const txMap = new Map<string, Transaction>();
 
     const updateTxs = (snapshot: any) => {
@@ -207,26 +195,50 @@ export default function App() {
       setTransactions(sortedTxs);
     };
 
-    const unsubGroup = onSnapshot(qGroupTxs, {
-      next: updateTxs,
-      error: (err) => {
-        console.error("Erro na consulta do grupo:", err);
-        if (err.code === 'failed-precondition') {
-          toast.error("Erro de índice no Firebase. Verifique o console.");
+    const unsubscribers = chunkForFirestore(groupUids, FIRESTORE_IN_LIMIT).map((uidChunk) =>
+      onSnapshot(
+        query(
+          collection(db, "transactions"),
+          where("userId", "in", uidChunk),
+          where("date", ">=", dateStart),
+          where("date", "<=", dateEnd),
+          orderBy("date", "desc")
+        ),
+        {
+          next: updateTxs,
+          error: (err) => {
+            console.error("Erro na consulta do grupo:", err);
+            if (err.code === 'failed-precondition') {
+              toast.error("Erro de índice no Firebase. Verifique o console.");
+            }
+          }
         }
-      }
-    });
+      )
+    );
 
-    const unsubShared = onSnapshot(qExplicitSharedTxs, {
-      next: updateTxs,
-      error: (err) => {
-        console.error("Erro na consulta compartilhada:", err);
-      }
-    });
+    const normalizedUserEmail = normalizeEmail(user.email);
+    if (normalizedUserEmail) {
+      unsubscribers.push(
+        onSnapshot(
+          query(
+            collection(db, "transactions"),
+            where("sharedWith", "array-contains", normalizedUserEmail),
+            where("date", ">=", dateStart),
+            where("date", "<=", dateEnd),
+            orderBy("date", "desc")
+          ),
+          {
+            next: updateTxs,
+            error: (err) => {
+              console.error("Erro na consulta compartilhada:", err);
+            }
+          }
+        )
+      );
+    }
 
     return () => {
-      unsubGroup();
-      unsubShared();
+      unsubscribers.forEach((unsubscribe) => unsubscribe());
     };
   }, [user?.uid, profile?.uid, groupUidsKey, selectedYear, currentMonthIdx, isAnnual, user?.email]);
 
@@ -280,6 +292,7 @@ export default function App() {
               isAnnual={isAnnual}
               currentMonthIdx={currentMonthIdx}
               groupProfiles={[profile, ...groupProfiles].filter((p): p is UserProfile => !!p)}
+              sharedEmails={accessibleEmails}
             />
       } />
     </Routes>
@@ -302,6 +315,7 @@ interface MainContentProps {
   isAnnual: boolean;
   currentMonthIdx: number;
   groupProfiles: UserProfile[];
+  sharedEmails: string[];
 }
 
 function MainContent({
@@ -312,7 +326,8 @@ function MainContent({
   selectedYear,
   isAnnual,
   currentMonthIdx,
-  groupProfiles
+  groupProfiles,
+  sharedEmails
 }: MainContentProps) {
   const { year, month, tab = 'dashboard' } = useParams();
   const navigate = useNavigate();
@@ -439,14 +454,10 @@ function MainContent({
     return Array.from(budgetMap.values());
   }, [groupProfiles]);
 
-  const allSharedEmails = useMemo(() => {
-    const emails = new Set<string>();
-    groupProfiles.forEach(p => {
-      emails.add(p.email);
-      p.sharedWith?.forEach(e => emails.add(e));
-    });
-    return Array.from(emails).filter(e => e !== user.email);
-  }, [groupProfiles, user.email]);
+  const allSharedEmails = useMemo(
+    () => sharedEmails.filter((email) => email !== normalizeEmail(user.email)),
+    [sharedEmails, user.email]
+  );
 
   const aggregatedProfile = useMemo(() => ({
     ...profile!,
@@ -529,14 +540,12 @@ function MainContent({
               <div className="w-px h-6 bg-zinc-200 mx-1" />
 
               <DropdownMenu>
-                <DropdownMenuTrigger>
-                  <button className="flex items-center gap-2 p-1 pl-1 pr-1.5 sm:pr-3 rounded-full bg-white border border-zinc-200 hover:border-blue-200 hover:bg-blue-50/30 transition-all shadow-sm outline-none group shrink-0">
-                    <img src={user.photoURL || ""} alt="" className="w-7 h-7 sm:w-8 sm:h-8 rounded-full border border-white shadow-sm object-cover" referrerPolicy="no-referrer" />
-                    <div className="flex flex-col items-start hidden sm:flex">
-                      <span className="text-[11px] font-bold text-zinc-900 leading-tight">{user.displayName?.split(' ')[0]}</span>
-                      <span className="text-[9px] text-zinc-500 font-medium leading-tight">Perfil</span>
-                    </div>
-                  </button>
+                <DropdownMenuTrigger className="flex items-center gap-2 rounded-full border border-zinc-200 bg-white p-1 pl-1 pr-1.5 shadow-sm transition-all hover:border-blue-200 hover:bg-blue-50/30 sm:pr-3 group shrink-0">
+                  <img src={user.photoURL || ""} alt="" className="w-7 h-7 sm:w-8 sm:h-8 rounded-full border border-white shadow-sm object-cover" referrerPolicy="no-referrer" />
+                  <div className="hidden flex-col items-start sm:flex">
+                    <span className="text-[11px] font-bold leading-tight text-zinc-900">{user.displayName?.split(' ')[0]}</span>
+                    <span className="text-[9px] font-medium leading-tight text-zinc-500">Perfil</span>
+                  </div>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" sideOffset={12}>
                   <div className="px-4 py-3 flex items-center gap-3 border-b border-zinc-100 mb-1">
@@ -557,10 +566,8 @@ function MainContent({
             {/* Mobile Hamburger Menu (Consolidates everything else) */}
             <div className="md:hidden">
               <DropdownMenu>
-                <DropdownMenuTrigger>
-                  <Button variant="ghost" size="icon" className="h-9 w-9 rounded-full bg-zinc-50 border border-zinc-200">
+                <DropdownMenuTrigger className="flex h-9 w-9 items-center justify-center rounded-full border border-zinc-200 bg-zinc-50">
                     <MoreVertical className="w-5 h-5 text-zinc-600" />
-                  </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" sideOffset={12} className="min-w-[200px]">
                   <div className="px-4 py-3 flex items-center gap-3 border-b border-zinc-100 mb-2">

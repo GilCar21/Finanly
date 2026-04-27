@@ -7,7 +7,6 @@ import {
   XAxis,
   YAxis,
   Tooltip,
-  ResponsiveContainer,
   CartesianGrid,
   Cell,
 } from "recharts";
@@ -15,6 +14,7 @@ import { addMonths, format, parseISO } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { CreditCard, AlertTriangle, CheckCircle2, TrendingDown, Layers } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
+import SafeResponsiveContainer from "./ui/safe-responsive-container";
 
 interface InstallmentsTrackerProps {
   transactions: Transaction[];
@@ -296,7 +296,7 @@ export default function InstallmentsTracker({ transactions }: InstallmentsTracke
           ) : (
             <div className="space-y-4">
               <div className="h-[220px]">
-                <ResponsiveContainer width="100%" height="100%">
+                <SafeResponsiveContainer>
                   <BarChart data={projection} barCategoryGap="30%">
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f1f4" />
                     <XAxis
@@ -319,7 +319,7 @@ export default function InstallmentsTracker({ transactions }: InstallmentsTracke
                       ))}
                     </Bar>
                   </BarChart>
-                </ResponsiveContainer>
+                </SafeResponsiveContainer>
               </div>
 
               {/* Month-by-month breakdown */}

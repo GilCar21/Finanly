@@ -1,5 +1,5 @@
-import { GoogleGenAI } from "@google/genai";
 import { Transaction } from "@/lib/firebase";
+import { postGeminiFunction } from "@/lib/geminiApi";
 import {
   format,
   parseISO,
@@ -9,8 +9,6 @@ import {
   isWithinInterval,
 } from "date-fns";
 import { ptBR } from "date-fns/locale";
-
-const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_GEMINI_API_KEY });
 
 export interface FinancialContext {
   userName: string;
@@ -187,6 +185,10 @@ export interface Insight {
   message: string;
 }
 
+interface InsightsResponse {
+  insights: Insight[];
+}
+
 export async function generateInsights(
   transactions: Transaction[],
   userName: string,
@@ -202,26 +204,15 @@ export async function generateInsights(
   let accumulated = "";
 
   try {
-    const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash-lite",
-      contents: [{ role: "user", parts: [{ text: prompt }] }],
-      config: {
-        responseMimeType: "application/json",
-        temperature: 0.7,
-      },
+    const response = await postGeminiFunction<InsightsResponse>("gemini-insights", {
+      prompt,
     });
 
-    accumulated = response.text ?? "";
+    accumulated = JSON.stringify(response.insights ?? []);
     onProgress?.(accumulated);
-
-    // Robust JSON extraction: strip markdown fences if present
-    const jsonMatch = accumulated.match(/\[[\s\S]*\]/);
-    if (!jsonMatch) throw new Error("No JSON array found in response");
-
-    const insights: Insight[] = JSON.parse(jsonMatch[0]);
-    return insights.slice(0, 5);
+    return (response.insights ?? []).slice(0, 5);
   } catch (e) {
-    console.error("💥 [GeminiInsights] Erro:", e);
+    console.error("Erro ao gerar insights:", e);
     return [];
   }
 }

@@ -47,7 +47,7 @@ export default function ImportModal({ isOpen, onClose, userId, sharedWith, custo
   const [importType, setImportType] = useState<'debit' | 'credit'>('debit');
   const [dueDay, setDueDay] = useState<string>("24");
   const [importMonth, setImportMonth] = useState<string>(currentMonth.toString());
-  const [selectedAccountId, setSelectedAccountId] = useState<string>("");
+  const [selectedAccountId, setSelectedAccountId] = useState<string>("none");
 
   // Resetar estados ao abrir o modal para evitar que configurações anteriores persistam
   React.useEffect(() => {
@@ -56,7 +56,7 @@ export default function ImportModal({ isOpen, onClose, userId, sharedWith, custo
       setPreview([]);
       setImportType('debit');
       setImportMonth(currentMonth.toString());
-      setSelectedAccountId("");
+      setSelectedAccountId("none");
       setLoading(false);
       setLoadingStatus("");
     }
@@ -94,7 +94,8 @@ export default function ImportModal({ isOpen, onClose, userId, sharedWith, custo
       let processedResults = results;
       if (importType === 'credit' && dueDay) {
         const selectedMonth = parseInt(importMonth);
-        const normalizedDate = `${currentYear}-${(selectedMonth + 1).toString().padStart(2, '0')}-${dueDay.padStart(2, '0')}`;
+        const safeDueDay = Math.max(1, Math.min(31, parseInt(dueDay, 10) || 1));
+        const normalizedDate = `${currentYear}-${(selectedMonth + 1).toString().padStart(2, '0')}-${safeDueDay.toString().padStart(2, '0')}`;
         processedResults = results.map(tx => ({
           ...tx,
           description: `${tx.description} (${tx.date})`, // Mover data original para o fim da descrição
@@ -199,7 +200,7 @@ export default function ImportModal({ isOpen, onClose, userId, sharedWith, custo
         return addDoc(collection(db, "transactions"), {
           ...tx,
           userId,
-          accountId: selectedAccountId || undefined,
+          accountId: selectedAccountId !== "none" ? selectedAccountId : undefined,
           status,
           sharedWith
         });
@@ -259,7 +260,15 @@ export default function ImportModal({ isOpen, onClose, userId, sharedWith, custo
                         min="1"
                         max="31"
                         value={dueDay}
-                        onChange={(e) => setDueDay(e.target.value)}
+                        onChange={(e) => {
+                          const nextValue = e.target.value.replace(/[^\d]/g, "");
+                          if (!nextValue) {
+                            setDueDay("");
+                            return;
+                          }
+                          const limited = Math.max(1, Math.min(31, parseInt(nextValue, 10)));
+                          setDueDay(limited.toString());
+                        }}
                         className="w-20 h-10"
                         placeholder="Dia"
                       />
