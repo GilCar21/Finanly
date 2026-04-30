@@ -17,7 +17,7 @@ import Auth from "@/components/Auth";
 import LandingPage from "@/components/LandingPage";
 import { Toaster } from "sonner";
 import { toast } from "sonner";
-import { LayoutDashboard, Receipt, PlusCircle, LogOut, Users, ChevronLeft, ChevronRight, Filter, X, SlidersHorizontal, Flame, Layers, Target, Wallet, Tag, MoreVertical, UserCircle } from "lucide-react";
+import { LayoutDashboard, Receipt, PlusCircle, LogOut, Users, ChevronLeft, ChevronRight, Filter, X, SlidersHorizontal, Flame, Layers, Target, Wallet, Tag, MoreVertical, UserCircle, TrendingDown, TrendingUp, Scale } from "lucide-react";
 import TransactionForm from "@/components/TransactionForm";
 import ImportModal from "@/components/ImportModal";
 import ShareModal from "@/components/ShareModal";
@@ -33,9 +33,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs"
 import { getMonth, parseISO, format, addMonths, subMonths, setMonth } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { Routes, Route, Navigate, useParams, useNavigate, useLocation, useMatch } from "react-router-dom";
-import { CATEGORIES, PAYMENT_METHODS } from "@/lib/constants";
+import { CATEGORIES, PAYMENT_METHODS, formatCurrency } from "@/lib/constants";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
-import { buildAccessibleUserIds, buildSharedEmailAccessList, chunkForFirestore, FIRESTORE_IN_LIMIT, normalizeEmail } from "@/lib/sharing";
+import { buildSharedEmailAccessList, chunkForFirestore, FIRESTORE_IN_LIMIT, normalizeEmail } from "@/lib/sharing";
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
@@ -64,6 +64,7 @@ export default function App() {
     const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
       setUser(user);
       if (user) {
+        setIsGroupLoaded(false);
         // Initial fetch and ensures profile exists
         const userRef = doc(db, "users", user.uid);
         const userSnap = await getDoc(userRef);
@@ -85,6 +86,9 @@ export default function App() {
       } else {
         setProfile(null);
         setTransactions([]);
+        setAccounts([]);
+        setGroupProfiles([]);
+        setIsGroupLoaded(false);
       }
       setLoading(false);
     });
@@ -92,27 +96,43 @@ export default function App() {
     return () => unsubscribeAuth();
   }, []);
 
-  // Group UIDs for stable dependencies (Stringified check)
-  const groupUids = useMemo(() => buildAccessibleUserIds(user, groupProfiles), [user, groupProfiles]);
-
-  const groupUidsKey = groupUids.join(',');
   const accessibleEmails = useMemo(() => buildSharedEmailAccessList(user, [profile, ...groupProfiles].filter((p): p is UserProfile => !!p)), [user, profile, groupProfiles]);
+  const sharedOwnerUids = useMemo(
+    () => Array.from(new Set(groupProfiles.map((sharedProfile) => sharedProfile.uid).filter(Boolean))).sort(),
+    [groupProfiles]
+  );
+  const sharedOwnerUidsKey = sharedOwnerUids.join(',');
 
   // Group profiles real-time listener (Find everyone who shared with me)
   useEffect(() => {
     if (!user) return;
 
+    const normalizedUserEmail = normalizeEmail(user.email);
+    if (!normalizedUserEmail) {
+      setGroupProfiles([]);
+      setIsGroupLoaded(true);
+      return;
+    }
+
     const qSharedWithMe = query(
       collection(db, "users"),
-      where("sharedWith", "array-contains", user.email)
+      where("sharedWith", "array-contains", normalizedUserEmail)
     );
 
-    const unsubscribeShared = onSnapshot(qSharedWithMe, (snapshot) => {
-      const profiles = snapshot.docs.map(d => d.data() as UserProfile);
-      setGroupProfiles(profiles);
-      setIsGroupLoaded(true);
-      console.log(`🤝 [Group] Encontrados ${profiles.length} perfis compartilhando com você.`);
-    });
+    const unsubscribeShared = onSnapshot(
+      qSharedWithMe,
+      (snapshot) => {
+        const profiles = snapshot.docs.map(d => d.data() as UserProfile);
+        setGroupProfiles(profiles);
+        setIsGroupLoaded(true);
+        console.log(`🤝 [Group] Encontrados ${profiles.length} perfis compartilhando com você.`);
+      },
+      (err) => {
+        console.error("Erro ao carregar perfis compartilhados:", err);
+        setGroupProfiles([]);
+        setIsGroupLoaded(true);
+      }
+    );
 
     return () => unsubscribeShared();
   }, [user]);
@@ -130,7 +150,7 @@ export default function App() {
 
   // Accounts real-time listener (Self + Shared)
   useEffect(() => {
-    if (!user || groupUids.length === 0) return;
+    if (!user) return;
 
     const accMap = new Map<string, Account>();
     const update = (snap: any) => {
@@ -142,26 +162,39 @@ export default function App() {
     };
 
     const unsubscribers = [
-      ...chunkForFirestore(groupUids, FIRESTORE_IN_LIMIT).map((uidChunk) =>
-        onSnapshot(query(collection(db, "accounts"), where("userId", "in", uidChunk)), update)
+      onSnapshot(
+        query(collection(db, "accounts"), where("userId", "==", user.uid)),
+        update,
+        (err) => console.error("Erro ao carregar carteiras próprias:", err)
       ),
     ];
+
+    chunkForFirestore(sharedOwnerUids, FIRESTORE_IN_LIMIT).forEach((uidChunk) => {
+      unsubscribers.push(
+        onSnapshot(
+          query(collection(db, "accounts"), where("userId", "in", uidChunk)),
+          update,
+          (err) => console.error("Erro ao carregar carteiras de perfis compartilhados:", err)
+        )
+      );
+    });
 
     const normalizedUserEmail = normalizeEmail(user.email);
     if (normalizedUserEmail) {
       unsubscribers.push(
         onSnapshot(
           query(collection(db, "accounts"), where("sharedWith", "array-contains", normalizedUserEmail)),
-          update
+          update,
+          (err) => console.error("Erro ao carregar carteiras compartilhadas:", err)
         )
       );
     }
 
     return () => { unsubscribers.forEach((unsubscribe) => unsubscribe()); };
-  }, [user?.uid, groupUidsKey, user?.email]);
+  }, [user?.uid, user?.email, sharedOwnerUidsKey]);
 
   useEffect(() => {
-    if (!user || !profile || groupUids.length === 0) return;
+    if (!user || !profile) return;
 
     // Calcular o intervalo de datas para a consulta
     let dateStart: string;
@@ -176,8 +209,7 @@ export default function App() {
       dateEnd = `${selectedYear}-${monthStr}-31`; // Firestore aceita até o 31 sem problemas
     }
 
-    // Calculate group UIDs including self (already memoized)
-    console.log(`📡 [Firestore] Carregando transações do grupo: ${groupUids.join(', ')}`);
+    console.log(`📡 [Firestore] Carregando transações próprias e compartilhadas para ${user.uid}`);
 
     const txMap = new Map<string, Transaction>();
 
@@ -195,11 +227,11 @@ export default function App() {
       setTransactions(sortedTxs);
     };
 
-    const unsubscribers = chunkForFirestore(groupUids, FIRESTORE_IN_LIMIT).map((uidChunk) =>
+    const unsubscribers = [
       onSnapshot(
         query(
           collection(db, "transactions"),
-          where("userId", "in", uidChunk),
+          where("userId", "==", user.uid),
           where("date", ">=", dateStart),
           where("date", "<=", dateEnd),
           orderBy("date", "desc")
@@ -214,7 +246,30 @@ export default function App() {
           }
         }
       )
-    );
+    ];
+
+    chunkForFirestore(sharedOwnerUids, FIRESTORE_IN_LIMIT).forEach((uidChunk) => {
+      unsubscribers.push(
+        onSnapshot(
+          query(
+            collection(db, "transactions"),
+            where("userId", "in", uidChunk),
+            where("date", ">=", dateStart),
+            where("date", "<=", dateEnd),
+            orderBy("date", "desc")
+          ),
+          {
+            next: updateTxs,
+            error: (err) => {
+              console.error("Erro na consulta de perfis compartilhados:", err);
+              if (err.code === 'failed-precondition') {
+                toast.error("Erro de índice no Firebase. Verifique o console.");
+              }
+            }
+          }
+        )
+      );
+    });
 
     const normalizedUserEmail = normalizeEmail(user.email);
     if (normalizedUserEmail) {
@@ -240,7 +295,7 @@ export default function App() {
     return () => {
       unsubscribers.forEach((unsubscribe) => unsubscribe());
     };
-  }, [user?.uid, profile?.uid, groupUidsKey, selectedYear, currentMonthIdx, isAnnual, user?.email]);
+  }, [user?.uid, profile?.uid, selectedYear, currentMonthIdx, isAnnual, user?.email, sharedOwnerUidsKey]);
 
   if (loading || (user && !isGroupLoaded)) {
     return (
@@ -423,6 +478,24 @@ function MainContent({
     const matchUser = userFilter === "all" || tx.userId === userFilter;
     return matchCategory && matchPayment && matchStatus && matchWallet && matchUser;
   });
+
+  const transactionSummary = useMemo(() => {
+    return listTransactions.reduce(
+      (summary, tx) => {
+        if (tx.type === "income") {
+          summary.income += tx.amount;
+        } else {
+          summary.expenses += tx.amount;
+          if (tx.status === "pending") summary.pendingExpenses += tx.amount;
+        }
+
+        return summary;
+      },
+      { expenses: 0, income: 0, pendingExpenses: 0 }
+    );
+  }, [listTransactions]);
+
+  const transactionBalance = transactionSummary.income - transactionSummary.expenses;
 
   const selectedMonthValue = (currentMonthIdx + 1).toString().padStart(2, '0');
   const selectedMonthLabel = MONTHS.find(m => m.value === selectedMonthValue)?.label;
@@ -683,7 +756,11 @@ function MainContent({
           </TabsContent>
 
           <TabsContent value="heatmap">
-            <SpendingHeatmap transactions={transactions} />
+            <SpendingHeatmap
+              transactions={transactions}
+              month={currentMonthIdx}
+              year={selectedYear}
+            />
           </TabsContent>
 
           <TabsContent value="installments">
@@ -823,6 +900,58 @@ function MainContent({
                   </div>
                 </div>
               )}
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                <div className="bg-white border border-rose-100 rounded-xl p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-[10px] font-bold uppercase tracking-wide text-rose-500">Gastos filtrados</p>
+                      <p className="text-2xl font-black text-rose-600 mt-1">{formatCurrency(transactionSummary.expenses)}</p>
+                    </div>
+                    <div className="w-10 h-10 rounded-full bg-rose-50 text-rose-500 flex items-center justify-center">
+                      <TrendingDown className="w-5 h-5" />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-white border border-emerald-100 rounded-xl p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-[10px] font-bold uppercase tracking-wide text-emerald-600">Receitas filtradas</p>
+                      <p className="text-2xl font-black text-emerald-600 mt-1">{formatCurrency(transactionSummary.income)}</p>
+                    </div>
+                    <div className="w-10 h-10 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center">
+                      <TrendingUp className="w-5 h-5" />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-white border border-zinc-200 rounded-xl p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Saldo filtrado</p>
+                      <p className={cn("text-2xl font-black mt-1", transactionBalance >= 0 ? "text-emerald-600" : "text-rose-600")}>
+                        {formatCurrency(transactionBalance)}
+                      </p>
+                    </div>
+                    <div className="w-10 h-10 rounded-full bg-zinc-100 text-zinc-600 flex items-center justify-center">
+                      <Scale className="w-5 h-5" />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-white border border-amber-100 rounded-xl p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-[10px] font-bold uppercase tracking-wide text-amber-600">Gastos pendentes</p>
+                      <p className="text-2xl font-black text-amber-600 mt-1">{formatCurrency(transactionSummary.pendingExpenses)}</p>
+                    </div>
+                    <div className="w-10 h-10 rounded-full bg-amber-50 text-amber-600 flex items-center justify-center">
+                      <Receipt className="w-5 h-5" />
+                    </div>
+                  </div>
+                </div>
+              </div>
 
               <TransactionList
                 transactions={listTransactions}

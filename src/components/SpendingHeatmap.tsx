@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useMemo, useState } from "react";
 import { Transaction } from "@/lib/firebase";
 import { formatCurrency } from "@/lib/constants";
 import {
@@ -8,17 +8,17 @@ import {
   eachDayOfInterval,
   getDay,
   parseISO,
-  subMonths,
-  addMonths,
   isSameDay,
   isSameMonth,
 } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { ChevronLeft, ChevronRight, Flame, TrendingUp, Calendar } from "lucide-react";
+import { Flame, TrendingUp, Calendar } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
 
 interface SpendingHeatmapProps {
   transactions: Transaction[];
+  month: number;
+  year: number;
 }
 
 const WEEKDAYS = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
@@ -42,8 +42,8 @@ function getHeatLabel(ratio: number): string {
   return "Muito alto";
 }
 
-export default function SpendingHeatmap({ transactions }: SpendingHeatmapProps) {
-  const [currentDate, setCurrentDate] = useState(new Date());
+export default function SpendingHeatmap({ transactions, month, year }: SpendingHeatmapProps) {
+  const currentDate = useMemo(() => new Date(year, month, 1), [month, year]);
   const [tooltip, setTooltip] = useState<{
     day: Date;
     amount: number;
@@ -143,26 +143,9 @@ export default function SpendingHeatmap({ transactions }: SpendingHeatmapProps) 
             </div>
           </div>
 
-          {/* Month navigation */}
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => setCurrentDate((d) => subMonths(d, 1))}
-              className="p-2 rounded-lg text-white hover:bg-white/20 transition-colors"
-              aria-label="Mês anterior"
-            >
-              <ChevronLeft className="w-4 h-4" />
-            </button>
-            <span className="text-white font-semibold text-sm min-w-[130px] text-center capitalize">
-              {format(currentDate, "MMMM yyyy", { locale: ptBR })}
-            </span>
-            <button
-              onClick={() => setCurrentDate((d) => addMonths(d, 1))}
-              className="p-2 rounded-lg text-white hover:bg-white/20 transition-colors"
-              aria-label="Próximo mês"
-            >
-              <ChevronRight className="w-4 h-4" />
-            </button>
-          </div>
+          <span className="text-white font-semibold text-sm min-w-[130px] text-center capitalize">
+            {format(currentDate, "MMMM yyyy", { locale: ptBR })}
+          </span>
         </div>
 
         {/* Summary stats */}

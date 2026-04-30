@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import emailjs from "@emailjs/browser";
 import { db, UserProfile } from "@/lib/firebase";
-import { doc, updateDoc, arrayUnion, arrayRemove, collection, query, where, getDocs } from "firebase/firestore";
+import { doc, updateDoc, arrayUnion, arrayRemove, collection, query, where, getDocs, writeBatch } from "firebase/firestore";
 import { toast } from "sonner";
 import { chunkForFirestore, FIRESTORE_IN_LIMIT, normalizeEmail } from "@/lib/sharing";
 import { UserPlus, X, Mail, CheckCircle2, Clock, Users, Send } from "lucide-react";
@@ -16,6 +16,9 @@ interface SharedUser {
   photoURL?: string;
   isRegistered: boolean; // found in Firestore users collection
 }
+
+const SHARED_DOCUMENT_COLLECTIONS = ["transactions", "accounts"];
+const FIRESTORE_BATCH_LIMIT = 450;
 
 interface ShareModalProps {
   isOpen: boolean;
@@ -98,6 +101,33 @@ export default function ShareModal({ isOpen, onClose, profile }: ShareModalProps
     );
   };
 
+  const updateExistingSharedDocuments = async (targetEmail: string, operation: "add" | "remove") => {
+    if (!profile?.uid) return;
+
+    const updates: Array<ReturnType<typeof doc>> = [];
+
+    for (const collectionName of SHARED_DOCUMENT_COLLECTIONS) {
+      const snapshot = await getDocs(
+        query(collection(db, collectionName), where("userId", "==", profile.uid))
+      );
+
+      snapshot.docs.forEach((document) => updates.push(document.ref));
+    }
+
+    for (let index = 0; index < updates.length; index += FIRESTORE_BATCH_LIMIT) {
+      const batch = writeBatch(db);
+      const chunk = updates.slice(index, index + FIRESTORE_BATCH_LIMIT);
+
+      chunk.forEach((documentRef) => {
+        batch.update(documentRef, {
+          sharedWith: operation === "add" ? arrayUnion(targetEmail) : arrayRemove(targetEmail),
+        });
+      });
+
+      await batch.commit();
+    }
+  };
+
   const handleShare = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!profile || !email) return;
@@ -127,7 +157,10 @@ export default function ShareModal({ isOpen, onClose, profile }: ShareModalProps
         sharedWith: arrayUnion(normalizedEmail)
       });
 
-      // 2. Tentar enviar email de convite
+      // 2. Garantir acesso aos documentos já existentes
+      await updateExistingSharedDocuments(normalizedEmail, "add");
+
+      // 3. Tentar enviar email de convite
       try {
         await sendInviteEmail(normalizedEmail);
         toast.success(`Convite enviado para ${normalizedEmail}!`, {
@@ -156,6 +189,7 @@ export default function ShareModal({ isOpen, onClose, profile }: ShareModalProps
       await updateDoc(userRef, {
         sharedWith: arrayRemove(targetEmail)
       });
+      await updateExistingSharedDocuments(targetEmail, "remove");
       toast.success("Acesso removido");
     } catch (e) {
       toast.error("Erro ao remover acesso");

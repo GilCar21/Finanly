@@ -1,6 +1,9 @@
 [build]
   functions = "netlify/functions"
 
+[functions."daily-due-reminders"]
+  schedule = "0 10 * * *"
+
 [[redirects]]
   from = "/*"
   to = "/index.html"

@@ -27,7 +27,18 @@ service cloud.firestore {
     }
 
     function hasDocumentAccess(resourceData) {
-      return isCurrentUser(resourceData.userId) || isSharedRecipient(resourceData.sharedWith);
+      return isCurrentUser(resourceData.userId) ||
+        isSharedRecipient(resourceData.sharedWith) ||
+        ownerProfileSharedWithRequester(resourceData.userId);
+    }
+
+    function ownerProfileSharedWithRequester(ownerId) {
+      return isAuthenticated() &&
+        normalizedEmail() != null &&
+        ownerId is string &&
+        exists(/databases/$(database)/documents/users/$(ownerId)) &&
+        get(/databases/$(database)/documents/users/$(ownerId)).data.sharedWith is list &&
+        get(/databases/$(database)/documents/users/$(ownerId)).data.sharedWith.hasAny([normalizedEmail()]);
     }
 
     function isOwnerCreating(data) {
